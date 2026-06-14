@@ -52,4 +52,7 @@ export function detectLocale(): Locale {
 
   const browserLang =
     navigator.language ||
-    (navigator as unknown as {
+    (navigator as unknown as { userLanguage: string }).userLanguage;
+
+  return normalizeLocale(browserLang);
+}

@@ -1,4 +1,5 @@
 export { enUS } from "./locales/en-US";
+export { frFR } from "./locales/fr-FR";
 export { zhCN } from "./locales/zh-CN";
 export type { Translations } from "./locales/types";
 export {

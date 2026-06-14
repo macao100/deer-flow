@@ -3,4 +3,6 @@ import { enUS, frFR, zhCN, type Translations } from "./locales";
 
 export const translations: Record<Locale, Translations> = {
   "en-US": enUS,
-  "fr-FR": frF
+  "fr-FR": frFR,
+  "zh-CN": zhCN,
+};
