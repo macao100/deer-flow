@@ -1,0 +1,280 @@
+---
+title: Configuration
+description: DeerFlow App est configurée via deux fichiers et un ensemble de variables d'environnement. Cette page couvre la configuration au niveau applicatif que la plupart des opérateurs doivent définir avant de déployer.
+---
+
+import { Callout, Cards, Tabs } from "nextra/components";
+
+# Configuration
+
+DeerFlow App est configurée via deux fichiers et un ensemble de variables d'environnement. Cette page couvre la configuration au niveau applicatif que la plupart des opérateurs doivent définir avant de déployer.
+
+## Fichiers de configuration
+
+| Fichier                  | Rôle                                                                                           |
+| ------------------------ | ---------------------------------------------------------------------------------------------- |
+| `config.yaml`            | Configuration backend : modèles, sandbox, outils, skills, mémoire et tous les réglages Harness |
+| `extensions_config.json` | Serveurs MCP et état d'activation des skills (géré par l'interface App et l'API Gateway)       |
+
+Les variables d'environnement frontend contrôlent le comportement de build et d'exécution de Next.js.
+
+## config.yaml
+
+Commencez par copier l'exemple :
+
+```bash
+cp config.example.yaml config.yaml
+```
+
+Les sections les plus importantes pour la configuration applicative sont :
+
+### Modèles
+
+Configurez les fournisseurs LLM que l'agent peut utiliser. Au moins un modèle est requis.
+
+<Tabs items={["OpenAI", "Anthropic", "DeepSeek", "Ollama", "Gemini"]}>
+  <Tabs.Tab>
+```yaml
+models:
+  - name: gpt-4o
+    use: langchain_openai:ChatOpenAI
+    model: gpt-4o
+    api_key: $OPENAI_API_KEY
+    request_timeout: 600.0
+    max_retries: 2
+    supports_vision: true
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```yaml
+models:
+  - name: claude-3-5-sonnet
+    use: langchain_anthropic:ChatAnthropic
+    model: claude-3-5-sonnet-20241022
+    api_key: $ANTHROPIC_API_KEY
+    default_request_timeout: 600.0
+    max_retries: 2
+    max_tokens: 8192
+    supports_vision: true
+    supports_thinking: true
+    when_thinking_enabled:
+      thinking:
+        type: enabled
+    when_thinking_disabled:
+      thinking:
+        type: disabled
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```yaml
+models:
+  - name: deepseek-v3
+    use: deerflow.models.patched_deepseek:PatchedChatDeepSeek
+    model: deepseek-reasoner
+    api_key: $DEEPSEEK_API_KEY
+    timeout: 600.0
+    max_retries: 2
+    supports_thinking: true
+    when_thinking_enabled:
+      extra_body:
+        thinking:
+          type: enabled
+    when_thinking_disabled:
+      extra_body:
+        thinking:
+          type: disabled
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```yaml
+models:
+  - name: qwen3-local
+    use: langchain_ollama:ChatOllama
+    model: qwen3:32b
+    base_url: http://localhost:11434  # Pas de suffixe /v1 — utilise l'API Ollama native
+    num_predict: 8192
+    temperature: 0.7
+    reasoning: true
+    supports_thinking: true
+    supports_vision: false
+```
+
+Installer le provider Ollama : `cd backend && uv add 'deerflow-harness[ollama]'`
+
+<Callout type="warning">
+  Utilisez <code>langchain_ollama:ChatOllama</code> (et non l'endpoint compatible
+  OpenAI) pour les modèles Ollama. L'API native sépare correctement le contenu de
+  réflexion ; l'endpoint compatible OpenAI peut l'aplatir ou l'ignorer.
+</Callout>
+  </Tabs.Tab>
+  <Tabs.Tab>
+```yaml
+models:
+  - name: gemini-2.5-pro
+    use: langchain_google_genai:ChatGoogleGenerativeAI
+    model: gemini-2.5-pro
+    gemini_api_key: $GEMINI_API_KEY
+    timeout: 600.0
+    max_retries: 2
+    max_tokens: 8192
+    supports_vision: true
+```
+  </Tabs.Tab>
+</Tabs>
+
+### Sandbox
+
+Choisissez l'environnement d'exécution pour les opérations de fichiers et commandes de l'agent :
+
+<Tabs items={["Local (défaut)", "Conteneur Docker", "K8s Provisioner"]}>
+  <Tabs.Tab>
+```yaml
+sandbox:
+  use: deerflow.sandbox.local:LocalSandboxProvider
+  allow_host_bash: false  # mettre true uniquement pour des workflows mono-utilisateur de confiance
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```yaml
+sandbox:
+  use: deerflow.community.aio_sandbox:AioSandboxProvider
+  image: enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
+  replicas: 3
+  idle_timeout: 600
+```
+
+Installation : `cd backend && uv add 'deerflow-harness[aio-sandbox]'`
+
+  </Tabs.Tab>
+  <Tabs.Tab>
+```yaml
+sandbox:
+  use: deerflow.community.aio_sandbox:AioSandboxProvider
+  provisioner_url: http://provisioner:8002
+```
+  </Tabs.Tab>
+</Tabs>
+
+### Outils
+
+Configurez les outils auxquels l'agent a accès. Les valeurs par défaut utilisent DuckDuckGo (sans clé API) et Jina AI pour les opérations web :
+
+```yaml
+tools:
+  # Recherche web (choisir un)
+  - use: deerflow.community.ddg_search.tools:web_search_tool # défaut, aucune clé requise
+  # - use: deerflow.community.tavily.tools:web_search_tool
+  #   api_key: $TAVILY_API_KEY
+
+  # Récupération web (choisir un)
+  - use: deerflow.community.jina_ai.tools:web_fetch_tool
+
+  # Recherche d'images
+  - use: deerflow.community.image_search.tools:image_search_tool
+
+  # Opérations sur les fichiers
+  - use: deerflow.sandbox.tools:ls_tool
+  - use: deerflow.sandbox.tools:read_file_tool
+  - use: deerflow.sandbox.tools:glob_tool
+  - use: deerflow.sandbox.tools:grep_tool
+  - use: deerflow.sandbox.tools:write_file_tool
+  - use: deerflow.sandbox.tools:str_replace_tool
+  - use: deerflow.sandbox.tools:bash_tool
+```
+
+### Persistance de l'état des threads (checkpointer)
+
+Par défaut, DeerFlow utilise un checkpointer SQLite pour la persistance de l'état des threads :
+
+```yaml
+checkpointer:
+  type: sqlite
+  connection_string: checkpoints.db # stocké dans backend/.deer-flow/
+```
+
+Pour les déploiements en production avec plusieurs processus :
+
+```yaml
+checkpointer:
+  type: postgres
+  connection_string: postgresql://user:password@localhost:5432/deerflow
+```
+
+Installation du support PostgreSQL : `cd backend && uv add langgraph-checkpoint-postgres psycopg[binary] psycopg-pool`
+
+En mémoire uniquement (état perdu au redémarrage) :
+
+```yaml
+checkpointer:
+  type: memory
+```
+
+### Mémoire
+
+```yaml
+memory:
+  enabled: true
+  storage_path: memory.json
+  debounce_seconds: 30
+  max_facts: 100
+  injection_enabled: true
+  max_injection_tokens: 2000
+```
+
+## Variables d'environnement frontend
+
+Définissez-les avant d'exécuter `pnpm build` ou de démarrer le frontend en production :
+
+| Variable              | Requis                       | Description                                                         |
+| --------------------- | ---------------------------- | ------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`  | **Requis** en production     | Secret pour la signature de session. Utilisez `openssl rand -base64 32`. |
+| `BETTER_AUTH_URL`     | Recommandé                   | URL publique de base (ex : `https://votre-domaine.com`)             |
+| `SKIP_ENV_VALIDATION` | Optionnel                    | Mettre à `1` pour ignorer la validation env pendant le build (déconseillé) |
+| `NEXT_PUBLIC_API_URL` | Optionnel                    | Remplacer l'URL de base de l'API pour le frontend                   |
+
+En développement, définissez-les dans un fichier `.env` à la racine du dépôt :
+
+```bash
+BETTER_AUTH_SECRET=votre-secret-fort-ici-min-32-chars
+```
+
+## extensions_config.json
+
+Ce fichier gère les connexions aux serveurs MCP et l'état d'activation des skills. Il est créé automatiquement lors de la première gestion des extensions via l'interface App ou l'API Gateway.
+
+Exemple manuel :
+
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "command": "npx",
+      "args": ["-y", "@my-org/my-mcp-server"],
+      "enabled": true
+    }
+  },
+  "skills": {
+    "deep-research": { "enabled": true },
+    "data-analysis": { "enabled": true }
+  }
+}
+```
+
+## Mise à jour de config
+
+Quand le schéma de config change, `config_version` est incrémenté. Pour fusionner les nouveaux champs dans votre config existante sans perdre vos personnalisations :
+
+```bash
+make config-upgrade
+```
+
+<Cards num={2}>
+  <Cards.Card
+    title="Guide de déploiement"
+    href="/docs/application/deployment-guide"
+  />
+  <Cards.Card
+    title="Configuration Harness"
+    href="/docs/harness/configuration"
+  />
+</Cards>

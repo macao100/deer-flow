@@ -1,0 +1,156 @@
+---
+title: Sandbox
+description: Le sandbox donne au Lead Agent un environnement contrôlé où il peut lire des fichiers, écrire des sorties, exécuter des commandes shell et produire des artefacts. Sans sandbox, l'agent ne peut que générer du texte. Avec un sandbox, il peut écrire et exécuter du code, traiter des fichiers de données, générer des graphiques et construire des livrables.
+---
+
+import { Callout, Cards, Tabs } from "nextra/components";
+
+# Sandbox
+
+<Callout type="info" emoji="📦">
+  Le sandbox est l'espace de travail isolé où l'agent effectue son travail sur
+  fichiers et commandes. C'est ce qui rend DeerFlow capable de vraies actions,
+  pas seulement de conversation.
+</Callout>
+
+Le sandbox donne au Lead Agent un environnement contrôlé où il peut lire des fichiers, écrire des sorties, exécuter des commandes shell et produire des artefacts. Sans sandbox, l'agent ne peut que générer du texte. Avec un sandbox, il peut écrire et exécuter du code, traiter des fichiers de données, générer des graphiques et construire des livrables.
+
+## Modes de sandbox
+
+DeerFlow supporte trois modes de sandbox. Choisissez celui qui correspond à votre déploiement :
+
+### LocalSandbox (défaut)
+
+Les commandes s'exécutent directement sur le système de fichiers de la machine hôte. Il n'y a pas d'isolation par conteneur.
+
+- **Idéal pour** : les workflows de développement local de confiance mono-utilisateur.
+- **Risque** : l'agent a accès au système de fichiers hôte. Utilisez `allow_host_bash: false` (défaut) pour empêcher l'exécution arbitraire de commandes.
+
+```yaml
+sandbox:
+  use: deerflow.sandbox.local:LocalSandboxProvider
+  allow_host_bash: false # défaut ; mettre à true uniquement pour des workflows entièrement de confiance
+```
+
+### Sandbox AIO basé sur des conteneurs
+
+Les commandes s'exécutent dans un conteneur isolé (Docker sur Linux/Windows, ou Apple Container sur macOS). Chaque session sandbox obtient un environnement de conteneur frais.
+
+- **Idéal pour** : les environnements multi-utilisateurs, les déploiements en production, ou tout cas où vous souhaitez une isolation d'exécution.
+
+```yaml
+sandbox:
+  use: deerflow.community.aio_sandbox:AioSandboxProvider
+
+  # Optionnel : image de conteneur (défaut affiché ci-dessous)
+  image: enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
+
+  # Optionnel : conteneurs concurrents max (défaut : 3, éviction LRU si dépassé)
+  replicas: 3
+
+  # Optionnel : préfixe de nom de conteneur (défaut : deer-flow-sandbox)
+  container_prefix: deer-flow-sandbox
+
+  # Optionnel : timeout d'inactivité en secondes (défaut : 600)
+  idle_timeout: 600
+
+  # Optionnel : montages personnalisés
+  mounts:
+    - host_path: /path/on/host
+      container_path: /home/user/shared
+      read_only: false
+
+  # Optionnel : variables d'environnement injectées dans le conteneur
+  environment:
+    API_KEY: $MY_API_KEY
+```
+
+Installation : `cd backend && uv add 'deerflow-harness[aio-sandbox]'`
+
+### Sandbox géré par Provisioner (Kubernetes)
+
+Chaque sandbox obtient un Pod dédié dans un cluster Kubernetes, géré par le service provisioner. Cela fournit la plus forte isolation et est recommandé pour les environnements de production avec plusieurs utilisateurs concurrents.
+
+```yaml
+sandbox:
+  use: deerflow.community.aio_sandbox:AioSandboxProvider
+  provisioner_url: http://provisioner:8002
+```
+
+Le service provisioner est inclus dans `docker/docker-compose-dev.yaml` et gère le cycle de vie du Pod et du Service pour chaque ID de sandbox.
+
+## Mappings de chemins
+
+Le sandbox utilise des mappings de chemins pour faire le pont entre le système de fichiers hôte et le système de fichiers virtuel du conteneur. Deux mappings clés sont toujours configurés :
+
+| Chemin hôte                                   | Chemin conteneur                               | Accès         |
+| --------------------------------------------- | ---------------------------------------------- | ------------- |
+| `skills/` (depuis `skills.path`)              | `/mnt/skills` (depuis `skills.container_path`) | Lecture seule |
+| `.deer-flow/threads/{thread_id}/user-data/`   | `/mnt/user-data/`                              | Lecture-écriture |
+
+Le répertoire de skills est toujours monté en lecture seule. Les threads écrivent leurs données de travail (uploads, sorties, fichiers intermédiaires) vers `/mnt/user-data/`.
+
+### Montages personnalisés
+
+Vous pouvez ajouter des montages supplémentaires pour le sandbox local en utilisant la configuration `mounts:` :
+
+```yaml
+sandbox:
+  use: deerflow.sandbox.local:LocalSandboxProvider
+  mounts:
+    - host_path: /home/user/my-project
+      container_path: /mnt/my-project
+      read_only: true
+```
+
+<Callout type="warning">
+  Les valeurs `container_path` des montages personnalisés ne doivent pas entrer en
+  conflit avec les préfixes réservés : `/mnt/skills`, `/mnt/acp-workspace`, ou
+  `/mnt/user-data`.
+</Callout>
+
+## Troncature des sorties
+
+Les outils sandbox limitent la taille des sorties pour maintenir le contexte de l'agent gérable. Ces limites sont configurables :
+
+```yaml
+sandbox:
+  use: deerflow.sandbox.local:LocalSandboxProvider
+
+  # bash utilise la troncature du milieu (début + fin)
+  bash_output_max_chars: 20000
+
+  # read_file utilise la troncature du début
+  read_file_output_max_chars: 50000
+
+  # ls utilise la troncature du début
+  ls_output_max_chars: 20000
+```
+
+Mettre à `0` pour désactiver la troncature.
+
+## Sécurité
+
+### LocalSandbox
+
+Le `LocalSandbox` exécute les commandes directement sur l'hôte. Par défaut, l'outil `bash` est **désactivé** pour empêcher l'exécution arbitraire de commandes sur l'hôte. Activez-le uniquement pour des workflows mono-utilisateur entièrement de confiance :
+
+```yaml
+sandbox:
+  allow_host_bash: true # Dangereux : donne à l'agent un accès shell à votre machine
+```
+
+Même sans `bash`, l'agent peut toujours lire et écrire des fichiers via les outils de fichiers dédiés.
+
+### Sandbox conteneur
+
+Les sandboxes basés sur des conteneurs fournissent une isolation du système de fichiers et des processus. L'agent ne peut pas voir ou modifier le système de fichiers hôte sauf via des montages explicites. Le mode géré par provisioner ajoute une couche supplémentaire : chaque thread obtient son propre Pod isolé.
+
+### Middleware d'audit
+
+`SandboxAuditMiddleware` s'exécute à chaque tour d'agent et enregistre toutes les opérations sandbox. Cela fournit une piste d'audit de quels fichiers ont été accédés et quelles commandes ont été exécutées pendant une session.
+
+<Cards num={2}>
+  <Cards.Card title="Outils" href="/docs/harness/tools" />
+  <Cards.Card title="Sous-agents" href="/docs/harness/subagents" />
+</Cards>

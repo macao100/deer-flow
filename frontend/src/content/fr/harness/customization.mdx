@@ -1,0 +1,179 @@
+---
+title: Personnalisation
+description: L'architecture pluggable de DeerFlow signifie que la plupart des parties du système peuvent être remplacées ou étendues sans forker le cœur. Cette page mappe les points d'extension et explique comment utiliser chacun d'eux.
+---
+
+import { Callout, Cards } from "nextra/components";
+
+# Personnalisation
+
+<Callout type="info" emoji="🔧">
+  DeerFlow est conçu pour être adapté. Vous pouvez étendre le comportement de
+  l'agent en écrivant des middlewares personnalisés, en ajoutant de nouveaux
+  outils, en construisant des packs de skills et en remplaçant tout composant
+  intégré via le champ <code>use:</code> de config.yaml.
+</Callout>
+
+L'architecture pluggable de DeerFlow signifie que la plupart des parties du système peuvent être remplacées ou étendues sans forker le cœur. Cette page mappe les points d'extension et explique comment utiliser chacun d'eux.
+
+## Middlewares personnalisés
+
+Les middlewares sont le principal point d'extension pour ajouter du comportement au Lead Agent. Ils enveloppent chaque tour du LLM et peuvent lire et modifier l'état de l'agent avant ou après l'appel au modèle.
+
+Pour ajouter un middleware personnalisé :
+
+1. Implémentez l'interface `AgentMiddleware` de `langchain.agents.middleware`.
+2. Passez votre middleware au paramètre `custom_middlewares` lors de la construction de l'agent.
+
+```python
+from langchain.agents.middleware import AgentMiddleware
+from deerflow.agents.thread_state import ThreadState
+
+class AuditMiddleware(AgentMiddleware):
+    async def on_start(self, state: ThreadState, config):
+        # S'exécute avant chaque appel au modèle
+        print(f"[audit] tour commence : {len(state.messages)} messages en contexte")
+        return state, config
+
+    async def on_end(self, state: ThreadState, config):
+        # S'exécute après chaque appel au modèle
+        print(f"[audit] tour termine : type du dernier message = {state.messages[-1].type}")
+        return state, config
+```
+
+Les middlewares personnalisés sont injectés dans la chaîne immédiatement avant `ClarificationMiddleware`, qui s'exécute toujours en dernier.
+
+## Outils personnalisés
+
+Ajoutez de nouveaux outils à l'agent en les enregistrant dans `config.yaml` sous `tools:` :
+
+```yaml
+tools:
+  - use: mypackage.tools:my_custom_tool
+    api_key: $MY_TOOL_API_KEY
+```
+
+Votre outil doit être un `BaseTool` LangChain ou une fonction décorée avec `@tool`. Il sera instancié en utilisant le chemin de classe `use:` et tous les champs supplémentaires de l'entrée de config.
+
+Pour les outils de style communautaire, le pattern est une fonction ou classe au niveau du module qui retourne un `BaseTool` :
+
+```python
+# mypackage/tools.py
+from langchain_core.tools import tool
+
+@tool
+def my_custom_tool(query: str) -> str:
+    """Search my custom data source."""
+    return do_search(query)
+```
+
+## Provider sandbox personnalisé
+
+Le sandbox peut être remplacé en implémentant l'interface `SandboxProvider` :
+
+```python
+from deerflow.sandbox.sandbox_provider import SandboxProvider
+from deerflow.sandbox.sandbox import Sandbox
+
+class MyCustomSandboxProvider(SandboxProvider):
+    def acquire(self, thread_id: str | None = None) -> str:
+        # Retourner un sandbox_id
+        ...
+
+    def get(self, sandbox_id: str) -> Sandbox | None:
+        # Retourner l'instance sandbox pour cet id
+        ...
+
+    def release(self, sandbox_id: str) -> None:
+        # Nettoyage
+        ...
+```
+
+Puis référencez-le dans `config.yaml` :
+
+```yaml
+sandbox:
+  use: mypackage.sandbox:MyCustomSandboxProvider
+```
+
+## Stockage de mémoire personnalisé
+
+Remplacez la mémoire basée sur fichier par n'importe quel store persistant en implémentant `MemoryStorage` :
+
+```python
+from deerflow.agents.memory.storage import MemoryStorage
+from typing import Any
+
+class RedisMemoryStorage(MemoryStorage):
+    def load(self, agent_name: str | None = None) -> dict[str, Any]:
+        ...
+
+    def reload(self, agent_name: str | None = None) -> dict[str, Any]:
+        ...
+
+    def save(self, memory_data: dict[str, Any], agent_name: str | None = None) -> bool:
+        ...
+```
+
+Configurez-le dans `config.yaml` :
+
+```yaml
+memory:
+  storage_class: mypackage.storage:RedisMemoryStorage
+```
+
+## Skills personnalisées
+
+Les skills sont le point d'extension le plus simple. Créez un répertoire sous `skills/custom/your-skill-name/` avec un fichier `SKILL.md`. La skill est découverte automatiquement au prochain appel à `load_skills()`.
+
+Consultez [Skills](/docs/harness/skills) pour la structure complète du répertoire et le format `SKILL.md`.
+
+## Modèles personnalisés
+
+Tout modèle de chat compatible LangChain peut être utilisé en le spécifiant dans le champ `use:` :
+
+```yaml
+models:
+  - name: my-custom-model
+    use: mypackage.models:MyCustomChatModel
+    # Tous les champs supplémentaires sont passés comme kwargs au constructeur
+    base_url: http://my-model-server:8080
+    api_key: $MY_MODEL_API_KEY
+```
+
+La classe de modèle doit implémenter l'interface LangChain `BaseChatModel`.
+
+## Checkpointer personnalisé
+
+La persistance de l'état des threads peut utiliser n'importe quel checkpointer compatible LangGraph :
+
+```yaml
+checkpointer:
+  type: sqlite
+  connection_string: ./my-checkpoints.db
+```
+
+Pour les backends personnalisés, implémentez l'interface LangGraph `BaseCheckpointSaver` et configurez-le programmatiquement lors de l'initialisation du `DeerFlowClient`.
+
+## Guardrails
+
+Ajoutez une autorisation pré-exécution pour les appels d'outils via la config `guardrails:` :
+
+```yaml
+guardrails:
+  enabled: true
+  provider:
+    use: deerflow.guardrails.builtin:AllowlistProvider
+    config:
+      denied_tools: ["bash", "write_file"]
+```
+
+Pour une logique de guardrail personnalisée, implémentez une classe avec les méthodes `evaluate()` et `aevaluate()` et référencez-la via `use:`.
+
+<Cards num={2}>
+  <Cards.Card
+    title="Guide d'intégration"
+    href="/docs/harness/integration-guide"
+  />
+  <Cards.Card title="Configuration" href="/docs/harness/configuration" />
+</Cards>

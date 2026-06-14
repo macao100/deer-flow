@@ -1,0 +1,118 @@
+---
+title: Démarrage rapide
+description: Apprenez à créer et exécuter un agent DeerFlow avec create_deerflow_agent, de la configuration du modèle au streaming des réponses.
+---
+
+import { Callout, Cards, Steps } from "nextra/components";
+
+# Démarrage rapide
+
+<Callout type="info" emoji="🚀">
+  Ce guide vous montre comment construire et exécuter un agent DeerFlow en Python avec
+  <code>create_deerflow_agent</code>.
+</Callout>
+
+La façon la plus rapide de comprendre DeerFlow Harness est de créer un agent directement en code. Ce démarrage rapide présente la configuration du modèle, la création de l'agent et le streaming d'une réponse.
+
+## Prérequis
+
+DeerFlow Harness nécessite Python 3.12 ou supérieur. Le package fait partie du dépôt `deerflow` sous `backend/packages/harness`.
+
+Si vous travaillez depuis le clone du dépôt :
+
+```bash
+cd backend
+uv sync
+```
+
+Vous aurez également besoin d'une instance de modèle de chat du package provider LangChain que vous souhaitez utiliser.
+
+## Créer votre premier agent
+
+<Steps>
+
+### Importer la factory et le modèle
+
+```python
+from deerflow.agents import create_deerflow_agent
+from langchain_openai import ChatOpenAI
+```
+
+### Créer un modèle
+
+```python
+model = ChatOpenAI(
+    model="gpt-4o",
+    api_key="YOUR_OPENAI_API_KEY",
+)
+```
+
+### Créer un agent
+
+```python
+agent = create_deerflow_agent(model)
+```
+
+Cela retourne un agent LangGraph compilé avec la chaîne de middleware par défaut de DeerFlow.
+
+### Streamer une réponse
+
+```python
+for event in agent.stream(
+    {"messages": [{"role": "user", "content": "Explain what DeerFlow Harness is."}]},
+    stream_mode=["messages", "values"],
+):
+    print(event)
+```
+
+</Steps>
+
+## Ajouter des outils ou des comportements
+
+Vous pouvez personnaliser l'agent en passant des outils, un prompt système, des fonctionnalités d'exécution, des middlewares ou un checkpointer.
+
+```python
+from deerflow.agents import RuntimeFeatures, create_deerflow_agent
+
+agent = create_deerflow_agent(
+    model,
+    system_prompt="You are a concise research assistant.",
+    features=RuntimeFeatures(subagent=True, memory=False),
+    plan_mode=True,
+    name="research-agent",
+)
+```
+
+Paramètres courants :
+
+| Paramètre          | Description                                                  |
+| ------------------ | ------------------------------------------------------------ |
+| `tools`            | Outils supplémentaires disponibles pour l'agent              |
+| `system_prompt`    | Prompt système personnalisé                                  |
+| `features`         | Activer ou remplacer les fonctionnalités d'exécution intégrées |
+| `extra_middleware` | Insérer des middlewares personnalisés dans la chaîne par défaut |
+| `plan_mode`        | Activer le suivi de tâches style Todo                        |
+| `checkpointer`     | Persister l'état de l'agent entre les exécutions             |
+| `name`             | Nom logique de l'agent                                       |
+
+## Quand utiliser DeerFlowClient à la place
+
+`create_deerflow_agent()` est la factory SDK bas niveau quand vous voulez travailler directement avec le graphe d'agent compilé.
+
+Utilisez `DeerFlowClient` quand vous voulez l'interface applicative embarquée de plus haut niveau, comme :
+
+- des helpers de chat orientés threads,
+- des APIs de gestion de modèles / skills / mémoire,
+- des uploads de fichiers et des artefacts,
+- des formats de réponse de type Gateway.
+
+## Prochaines étapes
+
+<Cards num={3}>
+  <Cards.Card
+    title="Principes de conception"
+    href="/docs/harness/design-principles"
+  />
+  <Cards.Card title="Lead Agent" href="/docs/harness/lead-agent" />
+  <Cards.Card title="Configuration" href="/docs/harness/configuration" />
+</Cards>

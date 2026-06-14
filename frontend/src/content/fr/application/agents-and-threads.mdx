@@ -1,0 +1,140 @@
+---
+title: Agents et threads
+description: DeerFlow App supporte plusieurs agents nommés et maintient l'état des conversations entre les sessions grâce aux threads et au checkpointing.
+---
+
+import { Callout, Cards, Steps } from "nextra/components";
+
+# Agents et threads
+
+DeerFlow App supporte plusieurs agents nommés et maintient l'état des conversations entre les sessions grâce aux threads et au checkpointing.
+
+## Agents
+
+### L'agent par défaut
+
+L'agent par défaut est le Lead Agent sans configuration personnalisée. Il charge toutes les skills activées globalement, a accès à tous les outils configurés et utilise le premier modèle de `config.yaml` par défaut.
+
+### Agents personnalisés
+
+Les agents personnalisés sont des variantes nommées du Lead Agent. Chacun peut avoir :
+
+- un **nom d'affichage** et un slug ASCII dérivé automatiquement (le `name` utilisé en interne)
+- un **modèle** spécifique à utiliser par défaut
+- un ensemble restreint de **skills** (ou toutes les skills activées globalement si non spécifié)
+- un ensemble restreint de **groupes d'outils**
+- un **prompt système** personnalisé ou des instructions spécifiques à l'agent
+
+Les agents personnalisés sont créés et gérés via :
+
+- **L'interface App** : ouvrez la section Agents dans le panneau de paramètres.
+- **L'API Gateway** : `POST /api/agents` avec la définition de l'agent.
+
+Le slug (`name`) est automatiquement dérivé du `display_name` et doit être unique. Le système vérifie les conflits et ajoute un suffixe si nécessaire (`/api/agents/check`).
+
+La configuration de l'agent est stockée dans `agents/{name}/config.yaml` relatif au répertoire backend.
+
+### Restreindre les capacités d'un agent
+
+Pour restreindre un agent personnalisé à des skills spécifiques :
+
+```yaml
+# agents/my-researcher/config.yaml
+name: my-researcher
+display_name: My Researcher
+skills:
+  - deep-research
+  - academic-paper-review
+# Omettre la clé skills pour hériter de toutes les skills activées globalement
+# Mettre skills: [] pour désactiver toutes les skills pour cet agent
+```
+
+Pour restreindre à des groupes d'outils spécifiques :
+
+```yaml
+tool_groups:
+  - research # seuls les outils du groupe 'research' sont disponibles
+```
+
+## Threads
+
+Un **thread** est une session de conversation persistante. Chaque thread a :
+
+- un identifiant unique
+- un historique de messages
+- des artefacts accumulés (fichiers de sortie)
+- un titre (généré automatiquement après le premier échange)
+- une référence à l'agent utilisé
+
+Les threads sont listés dans la barre latérale. Cliquer sur un thread reprend la conversation là où elle s'était arrêtée.
+
+### Cycle de vie d'un thread
+
+<Steps>
+
+#### Créer
+
+Un nouveau thread est créé lorsque vous démarrez une conversation. L'identifiant du thread est généré et la configuration initiale (modèle, agent, skills) est enregistrée.
+
+#### Exécuter
+
+Chaque message utilisateur déclenche une exécution de l'agent. L'exécution diffuse les tokens et les appels d'outils vers le navigateur en temps réel. L'état du thread (messages, artefacts) est mis à jour après chaque tour.
+
+#### Checkpointer
+
+Si un checkpointer est configuré, l'état du thread est persisté après chaque tour. Cela signifie que la conversation survit aux redémarrages du processus.
+
+#### Reprendre
+
+Ouvrir un thread depuis la barre latérale charge son historique complet depuis le checkpointer. L'agent reprend là où il s'était arrêté.
+
+</Steps>
+
+### Configuration du checkpointer
+
+Le checkpointer contrôle la façon dont l'état des threads est persisté :
+
+```yaml
+# En mémoire (défaut si omis — état perdu au redémarrage)
+# checkpointer:
+#   type: memory
+
+# SQLite (survit aux redémarrages, mono-processus)
+checkpointer:
+  type: sqlite
+  connection_string: checkpoints.db
+
+# PostgreSQL (multi-processus, production)
+# checkpointer:
+#   type: postgres
+#   connection_string: postgresql://user:password@localhost:5432/deerflow
+```
+
+<Callout type="info">
+  Le runtime embarqué de Gateway utilise le paramètre <code>checkpointer</code>{" "}
+  dans <code>config.yaml</code>. Le même paramètre est également utilisé par{" "}
+  <code>DeerFlowClient</code> dans les intégrations Python directes.
+</Callout>
+
+### Stockage des données de thread
+
+Les fichiers de travail produits pendant un thread (uploads, fichiers intermédiaires, artefacts de sortie) sont stockés dans :
+
+```
+backend/.deer-flow/threads/{thread_id}/user-data/
+```
+
+Ce répertoire est monté dans le sandbox en tant que `/mnt/user-data/` pour que l'agent puisse lire et écrire.
+
+Dans les déploiements Docker, ce chemin est bind-monté depuis l'hôte afin que les données de thread persistent lors des redémarrages de conteneurs. Définissez `DEER_FLOW_ROOT` sur le chemin absolu de la racine de votre dépôt deer-flow pour garantir l'utilisation du bon chemin hôte.
+
+<Cards num={2}>
+  <Cards.Card
+    title="Utilisation du workspace"
+    href="/docs/application/workspace-usage"
+  />
+  <Cards.Card
+    title="Opérations et dépannage"
+    href="/docs/application/operations-and-troubleshooting"
+  />
+</Cards>

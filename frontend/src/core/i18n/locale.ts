@@ -1,4 +1,4 @@
-export const SUPPORTED_LOCALES = ["en-US", "zh-CN"] as const;
+export const SUPPORTED_LOCALES = ["en-US", "zh-CN", "fr-FR"] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 export const DEFAULT_LOCALE: Locale = "en-US";
 
@@ -37,6 +37,10 @@ export function normalizeLocale(locale: string | null | undefined): Locale {
     return "zh-CN";
   }
 
+  if (locale.toLowerCase().startsWith("fr")) {
+    return "fr-FR";
+  }
+
   return DEFAULT_LOCALE;
 }
 
@@ -48,7 +52,4 @@ export function detectLocale(): Locale {
 
   const browserLang =
     navigator.language ||
-    (navigator as unknown as { userLanguage: string }).userLanguage;
-
-  return normalizeLocale(browserLang);
-}
+    (navigator as unknown as {

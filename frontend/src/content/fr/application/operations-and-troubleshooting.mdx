@@ -1,0 +1,174 @@
+---
+title: Opérations et dépannage
+description: Cette page couvre les tâches opérationnelles quotidiennes et les solutions aux problèmes courants lors de l'exécution de DeerFlow App.
+---
+
+import { Callout, Cards } from "nextra/components";
+
+# Opérations et dépannage
+
+Cette page couvre les tâches opérationnelles quotidiennes et les solutions aux problèmes courants lors de l'exécution de DeerFlow App.
+
+## Fichiers de log
+
+Tous les services écrivent leurs logs dans le répertoire `logs/` lorsqu'ils sont démarrés avec `make dev` :
+
+| Fichier              | Service                                 |
+| -------------------- | --------------------------------------- |
+| `logs/gateway.log`   | API Gateway FastAPI et runtime d'agent  |
+| `logs/frontend.log`  | Serveur de dev frontend Next.js         |
+| `logs/nginx.log`     | Reverse proxy nginx                     |
+
+Suivre les logs en temps réel :
+
+```bash
+tail -f logs/gateway.log
+```
+
+Ajuster le niveau de log du runtime dans `config.yaml` :
+
+```yaml
+log_level: debug # debug | info | warning | error
+```
+
+## Vérifications de santé
+
+Vérifier que chaque service répond :
+
+```bash
+# Santé Gateway
+curl http://localhost:8001/health
+
+# Via nginx (vérifie toute la chaîne de proxy)
+curl http://localhost:2026/api/models
+```
+
+## Mise à jour de config
+
+Quand vous récupérez une nouvelle version de DeerFlow, la `config_version` dans `config.example.yaml` peut être supérieure à celle de votre `config.yaml`. Pour fusionner les nouveaux champs sans perdre vos personnalisations :
+
+```bash
+make config-upgrade
+```
+
+Vérifier la version actuelle dans votre config :
+
+```bash
+grep config_version config.yaml
+```
+
+## Problèmes courants
+
+### L'application se charge mais l'agent ne répond pas
+
+1. Vérifiez `logs/gateway.log` pour des erreurs au démarrage.
+2. Vérifiez que votre modèle est correctement configuré dans `config.yaml` avec une clé API valide.
+3. Confirmez que la variable d'environnement de clé API est définie dans le shell qui a exécuté `make dev`.
+4. Testez directement l'endpoint du modèle avec `curl` pour exclure des problèmes réseau.
+
+---
+
+### Erreurs d'API de modèle dans la réponse de l'agent
+
+L'agent rapporte une erreur comme `"No chat models are configured"` ou `"model not found"` :
+
+- Vérifiez que la section `models:` dans `config.yaml` contient au moins une entrée.
+- Vérifiez que le champ `name:` correspond à ce que vous demandez dans l'interface.
+- Vérifiez que `api_key:` référence la bonne variable d'environnement et que la variable est définie.
+
+---
+
+### Le build frontend échoue avec `BETTER_AUTH_SECRET`
+
+```
+Error: BETTER_AUTH_SECRET is required
+```
+
+Définissez la variable d'environnement avant de builder :
+
+```bash
+export BETTER_AUTH_SECRET=$(openssl rand -base64 32)
+pnpm build
+```
+
+Ou définissez-la dans votre fichier `.env` à la racine du dépôt.
+
+---
+
+### Échecs d'outils liés au sandbox
+
+Si les outils de fichiers (`read_file`, `ls`, `bash`) échouent avec des erreurs de permission ou de chemin :
+
+1. Pour `LocalSandboxProvider` : vérifiez que `allow_host_bash` est correctement défini et que l'agent a accès en lecture/écriture au répertoire de données du thread.
+2. Pour les sandboxes conteneurs : vérifiez que Docker (ou Apple Container) est en cours d'exécution et que l'image sandbox est accessible.
+3. Pour le K8s Provisioner : vérifiez que le service provisioner est en bonne santé (`curl http://localhost:8002/health`) et que le cluster K8s est joignable.
+
+---
+
+### K8s Provisioner ne se connecte pas
+
+```
+Connection refused: http://provisioner:8002
+```
+
+- Assurez-vous que le service provisioner est en cours d'exécution : `docker compose ps`.
+- Vérifiez que `K8S_API_SERVER` est correctement défini (doit pointer vers l'API K8s depuis l'intérieur du conteneur, pas `localhost`).
+- Vérifiez que `~/.kube/config` est monté et que le cluster est joignable depuis l'hôte du conteneur.
+
+---
+
+### Outils MCP ne se chargent pas
+
+Si les outils MCP apparaissent dans `extensions_config.json` mais ne sont pas disponibles dans l'agent :
+
+1. Vérifiez `logs/gateway.log` pour des erreurs d'initialisation MCP.
+2. Vérifiez que la commande du serveur MCP est installée (`npx`, `uvx` ou le binaire concerné).
+3. Testez la commande du serveur manuellement pour confirmer qu'elle démarre sans erreurs.
+4. Définissez `log_level: debug` pour voir la sortie détaillée du chargement MCP.
+
+---
+
+### Mémoire ne persiste pas entre les sessions
+
+- Vérifiez `memory.enabled: true` dans `config.yaml`.
+- Vérifiez que le chemin de stockage est accessible en écriture : `ls -la backend/.deer-flow/`.
+- Recherchez des erreurs de mise à jour de mémoire dans `logs/gateway.log` (cherchez "memory").
+
+## Sauvegarde des données
+
+Les données de threads et la mémoire sont stockées dans `backend/.deer-flow/` :
+
+```
+backend/.deer-flow/
+  memory.json           # mémoire globale de l'agent
+  agents/               # mémoire par agent
+  threads/              # répertoires de travail des threads
+    {thread_id}/
+      user-data/
+        uploads/
+        outputs/
+  checkpoints.db        # checkpoints SQLite (si configuré)
+```
+
+Sauvegardez ce répertoire entier pour préserver l'historique des conversations, les artefacts et la mémoire apprise.
+
+Dans les déploiements Docker, le chemin hôte bind-monté (`$DEER_FLOW_ROOT/backend/.deer-flow/`) est la source de vérité — sauvegardez le chemin hôte.
+
+## Redémarrer les services
+
+Pour redémarrer un seul service (déploiement local) :
+
+```bash
+make stop
+make dev
+```
+
+Les scripts de redémarrage individuels des services se trouvent dans `scripts/`. Pour des redémarrages ciblés, vous pouvez tuer et relancer des processus individuels manuellement en utilisant les PIDs dans les fichiers de log.
+
+<Cards num={2}>
+  <Cards.Card
+    title="Guide de déploiement"
+    href="/docs/application/deployment-guide"
+  />
+  <Cards.Card title="Configuration" href="/docs/application/configuration" />
+</Cards>

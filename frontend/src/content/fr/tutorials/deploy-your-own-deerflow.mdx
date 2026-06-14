@@ -1,0 +1,79 @@
+---
+title: Déployer votre propre DeerFlow
+description: Ce tutoriel vous guide à travers le déploiement de DeerFlow dans un environnement de production en utilisant Docker Compose pour un accès multi-utilisateur.
+---
+
+import { Callout, Steps } from "nextra/components";
+
+# Déployer votre propre DeerFlow
+
+Ce tutoriel vous guide à travers le déploiement de DeerFlow dans un environnement de production en utilisant Docker Compose pour un accès multi-utilisateur.
+
+## Prérequis
+
+- Docker et Docker Compose installés
+- Un serveur ou une VM (Linux recommandé)
+- Clé API LLM
+
+## Étapes
+
+<Steps>
+
+### Cloner le dépôt
+
+```bash
+git clone https://github.com/bytedance/deer-flow.git
+cd deer-flow
+```
+
+### Créer le fichier de configuration
+
+```bash
+cp config.example.yaml config.yaml
+```
+
+Éditez `config.yaml` pour ajouter votre configuration de modèle.
+
+### Créer le fichier de variables d'environnement
+
+```bash
+cat > .env << EOF
+OPENAI_API_KEY=sk-your-key-here
+DEER_FLOW_ROOT=$(pwd)
+BETTER_AUTH_SECRET=$(openssl rand -base64 32)
+BETTER_AUTH_URL=https://your-domain.com
+EOF
+```
+
+### Démarrer les services
+
+```bash
+docker compose -f docker/docker-compose-dev.yaml up -d
+```
+
+### Vérifier le déploiement
+
+```bash
+# Vérifier que tous les services sont sains
+curl http://localhost:2026/api/models
+
+# Suivre les logs
+docker compose -f docker/docker-compose-dev.yaml logs -f
+```
+
+Ouvrez `http://your-server:2026` dans votre navigateur.
+
+</Steps>
+
+## Checklist de production
+
+- Configurer HTTPS/TLS pour nginx
+- Définir `BETTER_AUTH_SECRET` avec une chaîne aléatoire robuste (minimum 32 caractères)
+- Configurer les règles de pare-feu pour autoriser uniquement les ports nécessaires
+- Sauvegarder régulièrement le répertoire `backend/.deer-flow/`
+- Envisager d'utiliser un sandbox basé sur un conteneur (`AioSandboxProvider`) pour l'isolation multi-utilisateur
+
+## Prochaines étapes
+
+- [Guide de déploiement complet](/docs/application/deployment-guide)
+- [Opérations et dépannage](/docs/application/operations-and-troubleshooting)

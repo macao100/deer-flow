@@ -1,0 +1,79 @@
+---
+title: Pourquoi DeerFlow
+description: DeerFlow existe parce que les systèmes d'agents modernes ont besoin de plus qu'une boucle de chat. Un agent utile doit planifier sur de longs horizons, décomposer le travail en sous-tâches, utiliser des outils, manipuler des fichiers, exécuter du code en toute sécurité et préserver suffisamment de contexte pour rester cohérent sur une tâche complexe. DeerFlow a été construit pour fournir ce socle d'exécution.
+---
+
+import { Callout, Cards } from "nextra/components";
+
+# Pourquoi DeerFlow
+
+<Callout type="info" emoji="🦌">
+  DeerFlow a commencé par la recherche approfondie, mais il a évolué vers un
+  runtime général pour les agents à long horizon ayant besoin de skills, de
+  mémoire, d'outils et de coordination.
+</Callout>
+
+DeerFlow existe parce que les systèmes d'agents modernes ont besoin de plus qu'une boucle de chat. Un agent utile doit planifier sur de longs horizons, décomposer le travail en sous-tâches, utiliser des outils, manipuler des fichiers, exécuter du code en toute sécurité et préserver suffisamment de contexte pour rester cohérent sur une tâche complexe. DeerFlow a été construit pour fournir ce socle d'exécution.
+
+## Ça a commencé par la recherche approfondie
+
+La première version de DeerFlow était conçue autour d'un objectif précis : produire de véritables résultats de recherche plutôt que des résumés superficiels de chatbot. L'idée était de laisser un système IA travailler davantage comme une équipe de recherche : élaborer un plan, rassembler des sources, recouper les résultats et livrer un résultat structuré avec une profondeur utile.
+
+Cette approche fonctionnait, mais le projet a rapidement révélé quelque chose de plus important. Les équipes n'utilisaient pas DeerFlow uniquement pour la recherche. Elles l'adaptaient pour l'analyse de données, la génération de rapports, l'automatisation interne, les workflows opérationnels et d'autres tâches qui nécessitent également une exécution en plusieurs étapes.
+
+Le fil conducteur était clair : la partie précieuse n'était pas seulement le workflow de recherche lui-même, mais les capacités d'exécution sous-jacentes.
+
+## La recherche était la première skill, pas le système entier
+
+Ce changement d'usage a conduit à une conclusion clé : la recherche approfondie devrait être traitée comme une capacité au sein d'un runtime d'agents plus large, et non comme la définition de l'ensemble du produit.
+
+DeerFlow a donc évolué d'un projet centré sur un seul pattern de recherche vers un harness polyvalent pour les agents à longue durée d'exécution. Dans ce modèle, la recherche reste importante, mais elle devient une skill parmi d'autres plutôt que la forme fixe du système.
+
+C'est pourquoi DeerFlow est décrit comme un **harness** plutôt que simplement un framework ou simplement une application.
+
+## Pourquoi un harness est important
+
+Un harness est un runtime opinioné pour les agents. Il ne se contente pas d'exposer des abstractions. Il regroupe l'infrastructure dont un agent a besoin pour faire un travail utile dans des environnements réalistes.
+
+Pour DeerFlow, cela signifie combiner les éléments essentiels à l'exécution à long horizon :
+
+- **Les skills** pour des capacités spécifiques à chaque tâche, chargées uniquement lorsque nécessaire.
+- **L'exécution en sandbox** pour que les agents puissent travailler avec des fichiers, exécuter des commandes et produire des artefacts en toute sécurité.
+- **Les sous-agents** pour que les travaux complexes puissent être décomposés et exécutés en parallèle.
+- **La mémoire** pour que le système puisse conserver les préférences utilisateur et le contexte récurrent entre les sessions.
+- **La gestion du contexte** pour que les tâches longues restent gérables même lorsque les conversations et les sorties s'accumulent.
+
+Ce sont les briques qui rendent un agent utile au-delà d'un simple échange prompt-réponse.
+
+## Pourquoi DeerFlow a évolué au-delà des graphes multi-agents fixes
+
+Les premiers systèmes d'agents modélisaient souvent le travail comme un graphe fixe de rôles spécialisés. Cette approche peut fonctionner pour un workflow étroit, mais elle devient rigide dès que les utilisateurs veulent que le système gère une gamme de tâches plus large.
+
+DeerFlow a évolué vers une architecture différente : un agent lead avec des middlewares, des outils et des sous-agents invoqués dynamiquement. Cela rend le système plus facile à étendre, car de nouvelles capacités peuvent être introduites comme des skills, des outils ou des politiques d'exécution sans nécessiter une refonte complète du graphe d'orchestration.
+
+Ce changement architectural reflète la principale motivation de DeerFlow : construire d'abord la couche d'exécution réutilisable, puis laisser de nombreux workflows s'appuyer dessus.
+
+## DeerFlow est construit pour le travail à long horizon
+
+DeerFlow est motivé par une vision spécifique des agents : les systèmes les plus précieux ne sont pas ceux qui génèrent une seule réponse le plus vite possible, mais ceux qui peuvent rester productifs sur une chaîne d'actions plus longue.
+
+Un agent à long horizon doit faire plus que répondre. Il doit :
+
+1. décider quoi faire ensuite,
+2. garder une trace de l'état intermédiaire,
+3. stocker le travail en dehors du contexte du modèle lorsque nécessaire,
+4. se remettre de la complexité sans perdre sa direction, et
+5. retourner un artefact qu'un humain peut examiner, affiner ou poursuivre.
+
+C'est la catégorie de problème pour laquelle DeerFlow est conçu.
+
+## L'objectif
+
+L'objectif de DeerFlow est de fournir une base solide pour construire et opérer des systèmes d'agents capables d'accomplir réellement du travail.
+
+Si vous évaluez DeerFlow, l'idée importante est la suivante : DeerFlow n'est pas seulement une démo de recherche et pas seulement une interface UI autour d'un LLM. C'est un harness d'exécution pour des agents qui ont besoin de skills, de mémoire, d'outils, d'isolation et de coordination pour accomplir des tâches réelles.
+
+<Cards num={2}>
+  <Cards.Card title="Concepts clés" href="/docs/introduction/core-concepts" />
+  <Cards.Card title="Harness vs App" href="/docs/introduction/harness-vs-app" />
+</Cards>

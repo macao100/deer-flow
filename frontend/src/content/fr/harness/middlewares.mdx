@@ -1,0 +1,221 @@
+---
+title: Middlewares
+description: Chaque fois que le Lead Agent appelle le LLM, il passe par une **chaîne de middleware** avant et après l'appel au modèle. Les middlewares peuvent lire et modifier l'état de l'agent, injecter du contenu dans le prompt système, intercepter des appels d'outils et réagir aux sorties du modèle.
+---
+
+import { Callout } from "nextra/components";
+
+# Middlewares
+
+<Callout type="info" emoji="🔌">
+  Les middlewares enveloppent chaque tour du LLM dans le Lead Agent. Ils sont le
+  principal point d'extension pour ajouter des comportements transversaux comme
+  la mémoire, le résumé, la clarification et le suivi des tokens.
+</Callout>
+
+Chaque fois que le Lead Agent appelle le LLM, il passe par une **chaîne de middleware** avant et après l'appel au modèle. Les middlewares peuvent lire et modifier l'état de l'agent, injecter du contenu dans le prompt système, intercepter des appels d'outils et réagir aux sorties du modèle.
+
+Cette conception garde le cœur de l'agent simple et stable tout en permettant à des comportements riches et composables d'être ajoutés en couches.
+
+## Fonctionnement de la chaîne
+
+La chaîne de middleware est construite une fois par invocation d'agent, en fonction de la configuration actuelle et des paramètres de la requête. Les middlewares s'exécutent dans un ordre défini :
+
+1. Middlewares d'exécution (gestion d'erreurs, données de thread, uploads, correction des appels d'outils en suspens)
+2. `SummarizationMiddleware` — compression du contexte (si activé)
+3. `TodoMiddleware` — gestion de la liste de tâches (mode plan uniquement)
+4. `TokenUsageMiddleware` — suivi des tokens (si activé)
+5. `TitleMiddleware` — génération automatique du titre de thread
+6. `MemoryMiddleware` — injection de mémoire inter-sessions et mise en file d'attente
+7. `ViewImageMiddleware` — injection des détails d'image (si le modèle supporte la vision)
+8. `DeferredToolFilterMiddleware` — masque les schémas d'outils différés (si tool search activé)
+9. `SubagentLimitMiddleware` — limite les appels de sous-agents parallèles (si sous-agents activés)
+10. `LoopDetectionMiddleware` — rompt les boucles répétitives d'appels d'outils
+11. Middlewares personnalisés (le cas échéant)
+12. `ClarificationMiddleware` — intercepte les demandes de clarification (toujours en dernier)
+
+L'ordre est significatif. Le résumé s'exécute tôt pour réduire le contexte avant les autres traitements. La clarification s'exécute toujours en dernier pour pouvoir intercepter après que tous les autres middlewares ont eu leur tour.
+
+## Référence des middlewares
+
+### ClarificationMiddleware
+
+Intercepte les appels d'outils de clarification et les convertit en vraies demandes d'information supplémentaire côté utilisateur. Quand le modèle décide qu'il a besoin de poser une question à l'utilisateur avant de procéder, ce middleware expose cette demande.
+
+**Configuration** : contrôlée par les paramètres `guardrails.clarification`.
+
+---
+
+### LoopDetectionMiddleware
+
+Détecte quand l'agent fait le même appel d'outil à répétition sans progresser. Quand une boucle est détectée, le middleware intervient pour briser le cycle et empêche l'agent de brûler des tours indéfiniment.
+
+Les avertissements d'intervention sont mis en file d'attente par thread et s'exécutent, puis se drainent au prochain appel au modèle sous forme d'un unique `HumanMessage(name="loop_warning")` ajouté après les résultats d'outils existants. Cela maintient le couplage valide des appels d'outils du fournisseur. Les hooks de début/fin de run effacent les avertissements périmés ou non délivrés, et les arrêts forcés suppriment toujours les appels d'outils avant de forcer une réponse texte finale.
+
+**Configuration** : intégrée, pas de configuration utilisateur.
+
+---
+
+### MemoryMiddleware
+
+Lit les faits de mémoire persistés au début de chaque conversation et les injecte dans le prompt système. Après qu'une conversation se termine, met en file d'attente une mise à jour en arrière-plan pour incorporer toute nouvelle information dans le store de mémoire.
+
+**Configuration** : consultez la page [Mémoire](/docs/harness/memory) et la section `memory:` dans `config.yaml`.
+
+```yaml
+memory:
+  enabled: true
+  injection_enabled: true
+  max_injection_tokens: 2000
+  debounce_seconds: 30
+```
+
+---
+
+### SubagentLimitMiddleware
+
+Limite le nombre d'appels de tâches sous-agents parallèles que l'agent peut faire en un seul tour. Cela empêche l'agent de spawner un nombre illimité de sous-agents concurrents.
+
+**Configuration** : `subagent_enabled` et `max_concurrent_subagents` dans la config par requête.
+
+---
+
+### TitleMiddleware
+
+Génère automatiquement un titre pour le thread après le premier échange. Le titre est dérivé du premier message de l'utilisateur et de la réponse de l'agent.
+
+**Configuration** : section `title:` dans `config.yaml`.
+
+```yaml
+title:
+  enabled: true
+  max_words: 6
+  max_chars: 60
+  model_name: null # utiliser le modèle par défaut
+```
+
+---
+
+### TodoMiddleware
+
+Quand le mode plan est actif, maintient une liste de tâches structurée visible par l'utilisateur. L'agent utilise l'outil `write_todos` pour marquer les tâches comme `pending`, `in_progress` ou `completed` au fil de son travail sur un objectif complexe.
+
+**Activation** : activé automatiquement quand `is_plan_mode: true` est défini dans la configuration de la requête. Aucune entrée `config.yaml` requise.
+
+---
+
+### TokenUsageMiddleware
+
+Suit la consommation de tokens LLM par appel au modèle et l'enregistre au niveau `info`. Utile pour surveiller les coûts et comprendre où vont les tokens dans les tâches longues.
+
+**Configuration** : section `token_usage:` dans `config.yaml`.
+
+```yaml
+token_usage:
+  enabled: true
+```
+
+---
+
+### SandboxAuditMiddleware
+
+Audite les opérations sandbox effectuées pendant l'exécution de l'agent. Fournit un enregistrement des fichiers lus, écrits et des commandes exécutées.
+
+**Configuration** : middleware d'exécution intégré, toujours actif quand un sandbox est disponible.
+
+---
+
+### SummarizationMiddleware
+
+Quand la conversation devient longue, résume les anciens messages pour réduire la taille du contexte. Le résumé est réinjecté dans la conversation à la place des messages originaux, préservant le sens sans le coût complet en tokens.
+
+**Configuration** : section `summarization:` dans `config.yaml`. Voir la configuration détaillée ci-dessous.
+
+---
+
+### ViewImageMiddleware
+
+Quand le modèle actuel supporte la vision (`supports_vision: true`), ce middleware intercepte les appels d'outil `view_image` et injecte le contenu de l'image directement dans le contexte du modèle pour qu'il puisse être analysé.
+
+**Activation** : automatiquement activé quand le modèle résolu a `supports_vision: true`.
+
+---
+
+### DeferredToolFilterMiddleware
+
+Quand tool search est activé, ce middleware masque les schémas d'outils différés du contexte du modèle. Les outils sont découverts paresseusement via l'outil `tool_search` au lieu d'être listés en amont, réduisant l'utilisation du contexte.
+
+**Configuration** : `tool_search.enabled: true` dans `config.yaml`.
+
+## Configuration du résumé
+
+Le `SummarizationMiddleware` est l'un des middlewares les plus impactants pour les tâches à long horizon. Voici la référence complète de configuration :
+
+```yaml
+summarization:
+  enabled: true
+
+  # Modèle à utiliser pour le résumé (null = utiliser le modèle par défaut)
+  # Un modèle léger comme gpt-4o-mini est recommandé pour réduire les coûts.
+  model_name: null
+
+  # Conditions de déclenchement — le résumé s'exécute quand N'IMPORTE QUEL seuil est atteint
+  trigger:
+    - type: tokens # déclencher quand le contexte dépasse N tokens
+      value: 32000
+    # - type: messages  # déclencher quand il y a plus de N messages
+    #   value: 50
+    # - type: fraction  # déclencher quand le contexte dépasse X% du max du modèle
+    #   value: 0.8
+
+  # Combien d'historique récent garder après le résumé
+  keep:
+    type: messages
+    value: 10 # garder les 10 messages les plus récents
+    # Alternative: garder par tokens
+    # type: tokens
+    # value: 3000
+
+  # Tokens maximum à rogner lors de la préparation des messages pour le résumeur
+  trim_tokens_to_summarize: 15564
+
+  # Prompt de résumé personnalisé (null = utiliser le prompt LangChain par défaut)
+  summary_prompt: null
+```
+
+**Types de déclencheur** :
+
+- `tokens` : déclenche quand le nombre total de tokens dans la conversation dépasse `value`.
+- `messages` : déclenche quand le nombre de messages dépasse `value`.
+- `fraction` : déclenche quand le contexte atteint la fraction `value` de la limite maximale de tokens d'entrée du modèle.
+
+Plusieurs déclencheurs peuvent être listés ; le résumé s'exécute quand **n'importe lequel** se déclenche.
+
+**Types de conservation** :
+
+- `messages` : garder les derniers `value` messages après le résumé.
+- `tokens` : garder jusqu'à `value` tokens d'historique récent.
+- `fraction` : garder jusqu'à la fraction `value` de la limite maximale de tokens d'entrée du modèle.
+
+## Écrire un middleware personnalisé
+
+Des middlewares personnalisés peuvent être injectés dans la chaîne pour des cas d'usage spécialisés. Un middleware doit implémenter l'interface `AgentMiddleware` de `langchain.agents.middleware`.
+
+La structure de base est :
+
+```python
+from langchain.agents.middleware import AgentMiddleware
+
+class MyMiddleware(AgentMiddleware):
+    async def on_start(self, state, config):
+        # S'exécute avant l'appel au modèle
+        # Modifier state ou config ici
+        return state, config
+
+    async def on_end(self, state, config):
+        # S'exécute après l'appel au modèle
+        # Inspecter ou modifier le résultat
+        return state, config
+```
+
+Les middlewares personnalisés sont passés à `make_lead_agent` via le paramètre `custom_middlewares` dans `build_middlewares`. Ils sont injectés immédiatement avant `ClarificationMiddleware` à la fin de la chaîne.

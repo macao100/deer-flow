@@ -1,0 +1,204 @@
+---
+title: Guide de déploiement
+description: "Ce guide couvre toutes les méthodes de déploiement supportées pour DeerFlow App : développement local, Docker Compose et production avec des sandboxes gérés par Kubernetes."
+---
+
+import { Callout, Cards, Steps, Tabs } from "nextra/components";
+
+# Guide de déploiement
+
+Ce guide couvre toutes les méthodes de déploiement supportées pour DeerFlow App : développement local, Docker Compose et production avec des sandboxes gérés par Kubernetes.
+
+## Déploiement en développement local
+
+Le workflow local est la façon la plus rapide d'exécuter DeerFlow. Tous les services s'exécutent comme des processus natifs sur votre machine.
+
+<Tabs items={["Démarrer", "Arrêter", "Logs"]}>
+  <Tabs.Tab>
+```bash
+make dev
+```
+
+Services démarrés :
+
+| Service     | Port | Description                          |
+| ----------- | ---- | ------------------------------------ |
+| Gateway API | 8001 | Backend FastAPI + runtime d'agent embarqué |
+| Frontend    | 3000 | Interface Next.js                    |
+| nginx       | 2026 | Reverse proxy unifié                 |
+
+Accédez à l'application sur **http://localhost:2026**.
+
+  </Tabs.Tab>
+  <Tabs.Tab>
+```bash
+make stop
+```
+
+Arrête tous les services. Sûr à exécuter même si un service n'est pas en cours d'exécution.
+
+  </Tabs.Tab>
+  <Tabs.Tab>
+```
+logs/gateway.log     # Logs de l'API gateway et du runtime d'agent
+logs/frontend.log    # Logs du serveur de dev Next.js
+logs/nginx.log       # Logs d'accès/erreur nginx
+```
+
+Suivre un log en temps réel :
+
+```bash
+tail -f logs/gateway.log
+```
+
+  </Tabs.Tab>
+</Tabs>
+
+## Déploiement Docker Compose
+
+Docker Compose exécute tous les services dans des conteneurs. Utilisez ceci pour une configuration locale plus proche de la production ou pour les environnements d'équipe.
+
+### Prérequis
+
+- Docker (ou Docker Desktop / OrbStack sur macOS)
+- Un `config.yaml` configuré à la racine du dépôt
+
+### Compose de développement
+
+```bash
+# Définir le chemin absolu vers la racine de votre dépôt deer-flow
+export DEER_FLOW_ROOT=/path/to/deer-flow
+
+docker compose -f docker/docker-compose-dev.yaml up --build
+```
+
+Services : nginx, frontend, gateway et optionnellement provisioner (pour les sandboxes gérés par K8s).
+
+Accédez à l'application sur **http://localhost:2026**.
+
+### Variables d'environnement
+
+Créez un fichier `.env` à la racine du dépôt pour les secrets et la configuration d'exécution :
+
+```bash
+# .env
+OPENAI_API_KEY=sk-...
+DEER_FLOW_ROOT=/absolute/path/to/deer-flow
+BETTER_AUTH_SECRET=your-secret-here-min-32-chars
+```
+
+Les fichiers `docker-compose*.yaml` incluent une directive `env_file: ../.env` qui charge ceci automatiquement.
+
+<Callout type="warning">
+  Définissez toujours <code>BETTER_AUTH_SECRET</code> avec une chaîne aléatoire
+  forte avant de déployer. Sans cela, le build frontend utilise une valeur par
+  défaut publiquement connue.
+</Callout>
+
+### Persistance des données
+
+Les données de threads sont stockées dans `backend/.deer-flow/threads/`. Dans les déploiements Docker, ce répertoire est bind-monté dans le conteneur gateway.
+
+Pour éviter la perte de données lors de la recréation des conteneurs :
+
+1. Définissez `DEER_FLOW_ROOT` sur le chemin absolu de la racine du dépôt (ou un chemin hôte stable).
+2. Vérifiez que les répertoires `threads/` et `skills/` sont montés correctement.
+
+Pour la production, utilisez un volume nommé ou un Persistent Volume Claim (PVC) plutôt qu'un bind-mount hôte.
+
+## Considérations pour le déploiement en production
+
+### Sélection du mode sandbox
+
+| Sandbox                                | Cas d'usage                                    |
+| -------------------------------------- | ----------------------------------------------- |
+| `LocalSandboxProvider`                 | Mono-utilisateur, workflows locaux de confiance |
+| `AioSandboxProvider` (Docker)          | Multi-utilisateurs, isolation modérée           |
+| `AioSandboxProvider` + K8s Provisioner | Production, isolation forte, multi-utilisateurs |
+
+Pour tout déploiement avec plus d'un utilisateur concurrent, utilisez un sandbox basé sur des conteneurs pour éviter que les utilisateurs n'interfèrent avec les environnements d'exécution des uns et des autres.
+
+### Configuration du K8s Provisioner
+
+Le provisioner gère les Pods sandbox dans un cluster Kubernetes. Il est inclus dans `docker/docker-compose-dev.yaml`.
+
+<Steps>
+
+#### Configurer le provisioner
+
+Définissez les variables d'environnement requises dans votre `.env` ou override compose :
+
+```bash
+K8S_NAMESPACE=deer-flow
+SANDBOX_IMAGE=enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
+DEER_FLOW_ROOT=/absolute/path/to/deer-flow
+```
+
+#### Configurer le provider sandbox
+
+```yaml
+# config.yaml
+sandbox:
+  use: deerflow.community.aio_sandbox:AioSandboxProvider
+  provisioner_url: http://provisioner:8002
+```
+
+#### Configurer la persistance des données
+
+Pour la production, utilisez des PVCs plutôt que des volumes hostPath :
+
+```bash
+# Dans .env ou l'environnement compose
+USERDATA_PVC_NAME=deer-flow-userdata-pvc
+SKILLS_PVC_NAME=deer-flow-skills-pvc
+```
+
+Quand `USERDATA_PVC_NAME` est défini, le provisioner utilise automatiquement subPath (`threads/{thread_id}/user-data`) pour que chaque thread ait son propre répertoire dans le PVC.
+
+</Steps>
+
+### Configuration nginx
+
+nginx route tout le trafic vers le frontend ou Gateway. `/api/langgraph/*` est réécrit vers les routes `/api/*` compatibles LangGraph de Gateway, donc aucun upstream LangGraph séparé n'est nécessaire.
+
+### Authentification
+
+DeerFlow App utilise [Better Auth](https://www.better-auth.com/) pour la gestion des sessions. En production :
+
+1. Définissez `BETTER_AUTH_SECRET` avec une chaîne aléatoire forte (minimum 32 caractères).
+2. Définissez `BETTER_AUTH_URL` sur votre URL publique (ex : `https://votre-domaine.com`).
+
+```bash
+# Générer un secret
+openssl rand -base64 32
+```
+
+### Recommandations de ressources
+
+| Service                              | Minimum           | Recommandé        |
+| ------------------------------------ | ----------------- | ----------------- |
+| Gateway + runtime d'agent            | 2 vCPU, 4 Go RAM  | 4 vCPU, 8 Go RAM  |
+| Frontend                             | 0,5 vCPU, 512 Mo  | 1 vCPU, 1 Go      |
+| Conteneur sandbox (par session)      | 1 vCPU, 1 Go      | 2 vCPU, 2 Go      |
+
+## Vérification du déploiement
+
+Après le démarrage, vérifiez le déploiement :
+
+```bash
+# Vérification santé Gateway
+curl http://localhost:8001/health
+
+# Via nginx (vérifie toute la chaîne de proxy)
+curl http://localhost:2026/api/models
+```
+
+Un déploiement fonctionnel retourne une réponse `200` depuis chaque endpoint. L'appel `/api/models` retourne la liste des modèles de votre `config.yaml`.
+
+<Cards num={2}>
+  <Cards.Card title="Configuration" href="/docs/application/configuration" />
+  <Cards.Card
+    title="Opérations et dépannage"
+    href="/docs/application/operations-and-troubleshooting"
+  />
+</Cards>

@@ -1,0 +1,180 @@
+---
+title: Guide d'intégration
+description: DeerFlow Harness n'est pas seulement une application autonome. C'est une bibliothèque Python que vous pouvez importer et utiliser dans votre propre backend, serveur API, système d'automatisation ou orchestrateur multi-agents.
+---
+
+import { Callout, Cards } from "nextra/components";
+
+# Guide d'intégration
+
+<Callout type="info" emoji="🔌">
+  DeerFlow Harness peut être embarqué dans n'importe quelle application Python.
+  Ce guide couvre les patterns d'intégration pour utiliser DeerFlow comme
+  bibliothèque dans votre propre système.
+</Callout>
+
+DeerFlow Harness n'est pas seulement une application autonome. C'est une bibliothèque Python que vous pouvez importer et utiliser dans votre propre backend, serveur API, système d'automatisation ou orchestrateur multi-agents.
+
+## Embarquer DeerFlowClient
+
+Le principal point d'intégration est `DeerFlowClient`. Il encapsule le runtime LangGraph et expose une API propre pour envoyer des messages et streamer des réponses depuis n'importe quelle application Python.
+
+```python
+from deerflow.client import DeerFlowClient
+from deerflow.config import load_config
+
+# Charger la configuration (lit config.yaml ou DEER_FLOW_CONFIG_PATH)
+load_config()
+
+client = DeerFlowClient()
+```
+
+Le client est thread-safe et conçu pour être instancié une fois et réutilisé entre les requêtes.
+
+## Streaming asynchrone
+
+Le pattern d'intégration recommandé est le streaming asynchrone. Cela vous donne accès en temps réel à chaque token et événement au fur et à mesure que l'agent les produit :
+
+```python
+import asyncio
+
+async def run_agent(thread_id: str, user_message: str):
+    async for event in client.astream(
+        thread_id=thread_id,
+        message=user_message,
+        config={
+            "configurable": {
+                "model_name": "gpt-4o",
+                "subagent_enabled": True,
+            }
+        },
+    ):
+        # Traiter chaque événement de streaming
+        yield event
+
+# Dans un handler FastAPI :
+# from fastapi.responses import StreamingResponse
+# return StreamingResponse(run_agent(thread_id, message), media_type="text/event-stream")
+```
+
+## Invocation non-streaming
+
+Pour le traitement par lots ou quand vous n'avez besoin que du résultat final :
+
+```python
+async def run_agent_sync(thread_id: str, user_message: str) -> dict:
+    result = await client.ainvoke(
+        thread_id=thread_id,
+        message=user_message,
+    )
+    return result
+```
+
+## Gestion des threads
+
+Les threads représentent des conversations persistantes. Utilisez des IDs de thread uniques pour isoler différentes sessions utilisateur :
+
+```python
+import uuid
+
+# Nouvelle conversation
+thread_id = str(uuid.uuid4())
+
+# Continuer une conversation existante (même thread_id)
+# L'agent verra l'historique complet si un checkpointer est configuré
+await client.ainvoke(thread_id=existing_thread_id, message="Follow up question")
+```
+
+## Configuration par agent personnalisée
+
+Construisez des agents spécifiques au domaine en créant des configs d'agent nommées et en passant le `agent_name` à l'exécution :
+
+```python
+# agents/research-assistant/config.yaml doit exister avec la config de skills et d'outils
+
+result = await client.ainvoke(
+    thread_id=thread_id,
+    message=user_message,
+    config={
+        "configurable": {
+            "agent_name": "research-assistant",
+            "model_name": "gpt-4o",
+        }
+    },
+)
+```
+
+## Intégration avec FastAPI
+
+DeerFlow Gateway est lui-même une application FastAPI. Vous pouvez le monter comme sous-application ou router :
+
+```python
+from fastapi import FastAPI
+from deerflow.config import load_config
+
+load_config()
+
+app = FastAPI()
+
+# Monter le router gateway DeerFlow
+from deerflow.app.gateway.main import app as gateway_app
+app.mount("/deerflow", gateway_app)
+```
+
+Ou utilisez `DeerFlowClient` directement dans vos propres routes FastAPI avec streaming :
+
+```python
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
+from deerflow.client import DeerFlowClient
+
+app = FastAPI()
+client = DeerFlowClient()
+
+@app.post("/chat/{thread_id}")
+async def chat(thread_id: str, body: dict):
+    async def generate():
+        async for event in client.astream(thread_id=thread_id, message=body["message"]):
+            yield f"data: {event}\n\n"
+    return StreamingResponse(generate(), media_type="text/event-stream")
+```
+
+## Intégration avec LangGraph
+
+DeerFlow Harness est construit sur LangGraph. Le Lead Agent est un graphe LangGraph standard. Vous pouvez le composer avec vos propres nœuds et graphes LangGraph :
+
+```python
+from deerflow.agents.lead_agent.agent import make_lead_agent
+from langgraph.graph import StateGraph
+
+# Accéder à la factory d'agent LangGraph sous-jacente
+agent = make_lead_agent(config)
+```
+
+## Configuration en mode embarqué
+
+Quand embarqué dans une autre application, définissez le chemin de config explicitement pour éviter toute ambiguïté :
+
+```python
+import os
+os.environ["DEER_FLOW_CONFIG_PATH"] = "/path/to/my-deerflow-config.yaml"
+
+from deerflow.config import load_config
+load_config()
+```
+
+Ou passez le chemin directement :
+
+```python
+from deerflow.config import load_config
+load_config(config_path="/path/to/my-deerflow-config.yaml")
+```
+
+## Intégration de serveur MCP
+
+DeerFlow peut exposer son agent comme serveur MCP, permettant à d'autres systèmes compatibles MCP de l'appeler comme outil. Référez-vous au dépôt DeerFlow pour des exemples d'intégration de serveur MCP.
+
+<Cards num={2}>
+  <Cards.Card title="Personnalisation" href="/docs/harness/customization" />
+  <Cards.Card title="Configuration" href="/docs/harness/configuration" />
+</Cards>

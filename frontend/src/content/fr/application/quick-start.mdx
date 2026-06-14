@@ -1,0 +1,131 @@
+---
+title: Démarrage rapide
+description: Ce guide vous explique comment démarrer DeerFlow App sur votre machine locale en utilisant le workflow `make dev`. Gateway, Frontend et nginx démarrent ensemble et sont accessibles via une seule URL.
+---
+
+import { Callout, Cards, Steps } from "nextra/components";
+
+# Démarrage rapide
+
+<Callout type="info" emoji="⚡">
+  Lancez DeerFlow App en local en environ 10 minutes. Vous avez besoin d'une
+  machine avec Python 3.12+, Node.js 22+ et au moins une clé API LLM.
+</Callout>
+
+Ce guide vous explique comment démarrer DeerFlow App sur votre machine locale en utilisant le workflow `make dev`. Gateway, Frontend et nginx démarrent ensemble et sont accessibles via une seule URL.
+
+## Prérequis
+
+Vérifiez que tous les outils requis sont installés :
+
+```bash
+make check
+```
+
+Requis :
+
+| Outil   | Version minimale     |
+| ------- | -------------------- |
+| Python  | 3.12                 |
+| uv      | dernière             |
+| Node.js | 22                   |
+| pnpm    | 10                   |
+| nginx   | toute version récente |
+
+Sur macOS, installez avec `brew install python uv node pnpm nginx`. Sur Linux, utilisez le gestionnaire de paquets de votre distribution.
+
+## Étapes
+
+<Steps>
+
+### Cloner le dépôt
+
+```bash
+git clone https://github.com/bytedance/deer-flow.git
+cd deer-flow
+```
+
+### Installer les dépendances
+
+```bash
+make install
+```
+
+Ceci installe à la fois les dépendances Python backend (via `uv`) et les dépendances Node.js frontend (via `pnpm`).
+
+### Créer votre fichier de config
+
+```bash
+cp config.example.yaml config.yaml
+```
+
+Modifiez ensuite `config.yaml` pour ajouter au moins un modèle. La modification minimale consiste à ajouter un modèle dans la section `models:` :
+
+```yaml
+models:
+  - name: gpt-4o
+    use: langchain_openai:ChatOpenAI
+    model: gpt-4o
+    api_key: $OPENAI_API_KEY
+    request_timeout: 600.0
+    max_retries: 2
+    supports_vision: true
+```
+
+Définissez la variable d'environnement correspondante avant de démarrer :
+
+```bash
+export OPENAI_API_KEY=sk-...
+```
+
+Consultez la page [Configuration de l'application](/docs/application/configuration) pour des exemples avec d'autres fournisseurs de modèles.
+
+### Démarrer tous les services
+
+```bash
+make dev
+```
+
+Ceci démarre :
+
+- Gateway API et runtime d'agent embarqué sur le port `8001`
+- Frontend sur le port `3000`
+- Reverse proxy nginx sur le port `2026`
+
+Ouvrez [http://localhost:2026](http://localhost:2026) dans votre navigateur.
+
+### Arrêter tous les services
+
+```bash
+make stop
+```
+
+</Steps>
+
+## Ce qui se passe quand vous exécutez `make dev`
+
+- Les processus de services existants sont d'abord arrêtés (sûr à exécuter après un démarrage interrompu).
+- Chaque service démarre en arrière-plan et écrit ses logs dans le répertoire `logs/`.
+- nginx redirige tout le trafic via le port `2026`, vous n'avez donc besoin que d'une seule URL.
+
+Fichiers de log :
+
+| Service   | Fichier de log       |
+| --------- | -------------------- |
+| Gateway   | `logs/gateway.log`   |
+| Frontend  | `logs/frontend.log`  |
+| nginx     | `logs/nginx.log`     |
+
+<Callout type="tip">
+  Si quelque chose ne fonctionne pas, vérifiez d'abord les fichiers de log. La
+  plupart des erreurs au démarrage (clés API manquantes, échecs de parsing de
+  config) apparaissent dans `logs/gateway.log`.
+</Callout>
+
+<Cards num={2}>
+  <Cards.Card
+    title="Guide de déploiement"
+    href="/docs/application/deployment-guide"
+  />
+  <Cards.Card title="Configuration" href="/docs/application/configuration" />
+</Cards>

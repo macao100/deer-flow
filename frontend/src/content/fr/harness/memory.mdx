@@ -1,0 +1,125 @@
+---
+title: Mémoire
+description: La mémoire est une fonctionnalité d'exécution du DeerFlow Harness. Ce n'est pas un simple journal de conversation — c'est un store structuré de faits et résumés de contexte qui persistent entre des sessions séparées et informent le comportement de l'agent dans les conversations futures.
+---
+
+import { Callout, Cards } from "nextra/components";
+
+# Mémoire
+
+<Callout type="info" emoji="💾">
+  La mémoire permet à DeerFlow de transporter des informations utiles entre les
+  sessions. L'agent se souvient des préférences utilisateur, du contexte de
+  projet et des faits récurrents pour donner de meilleures réponses sans repartir
+  de zéro à chaque fois.
+</Callout>
+
+La mémoire est une fonctionnalité d'exécution du DeerFlow Harness. Ce n'est pas un simple journal de conversation — c'est un store structuré de faits et résumés de contexte qui persistent entre des sessions séparées et informent le comportement de l'agent dans les conversations futures.
+
+## Ce que la mémoire stocke
+
+Le store de mémoire contient plusieurs catégories d'informations :
+
+- **Contexte de travail** : résumés des projets en cours, objectifs et sujets récurrents sur lesquels l'utilisateur travaille.
+- **Contexte personnel** : préférences, style de communication et autres détails spécifiques à l'utilisateur que l'agent a appris.
+- **Top of mind** : les domaines de focus les plus récents et les tâches actives.
+- **Historique** : contexte des derniers mois, background antérieur et faits à long terme.
+- **Faits** : faits discrets et spécifiques que l'agent a extraits des conversations (par ex. outils préférés, noms d'équipes, contraintes de projet).
+
+Chaque catégorie est mise à jour au fil du temps au fur et à mesure que l'agent apprend des conversations en cours.
+
+## Comment ça fonctionne
+
+La mémoire est gérée par `MemoryMiddleware`, qui s'exécute à chaque tour du Lead Agent :
+
+1. **Injection** : au début de chaque conversation, la mémoire actuelle de l'agent est injectée dans le prompt système avec un budget de tokens contrôlé (`max_injection_tokens`).
+2. **Apprentissage** : après une conversation, un job en arrière-plan extrait de nouveaux faits et met à jour les catégories de mémoire pertinentes. Les mises à jour sont dé-bouncées par `debounce_seconds` pour grouper les changements rapides.
+3. **Mémoire par agent** : quand un agent personnalisé est actif, sa mémoire est stockée séparément de la mémoire globale. Cela maintient les connaissances des différents agents isolées.
+
+## Configuration
+
+```yaml
+memory:
+  enabled: true
+
+  # Chemin de stockage pour le fichier de mémoire global.
+  # Défaut : {base_dir}/memory.json  (résout en backend/.deer-flow/memory.json)
+  # Les chemins absolus sont utilisés tels quels.
+  # Les chemins relatifs sont résolus par rapport à base_dir (pas au répertoire de travail backend).
+  storage_path: memory.json
+
+  # Classe de stockage (défaut : stockage JSON basé sur fichier)
+  storage_class: deerflow.agents.memory.storage.FileMemoryStorage
+
+  # Secondes d'attente avant de traiter les mises à jour de mémoire en file d'attente (debounce)
+  debounce_seconds: 30
+
+  # Modèle pour l'extraction des mises à jour de mémoire (null = utiliser le modèle par défaut)
+  model_name: null
+
+  # Nombre maximum de faits à stocker
+  max_facts: 100
+
+  # Score de confiance minimum requis pour stocker un fait (0.0–1.0)
+  fact_confidence_threshold: 0.7
+
+  # Si la mémoire doit être injectée dans le prompt système
+  injection_enabled: true
+
+  # Tokens maximum à utiliser pour l'injection de mémoire dans le prompt système
+  max_injection_tokens: 2000
+```
+
+## Mémoire globale vs par agent
+
+DeerFlow supporte deux niveaux de mémoire :
+
+- **Mémoire globale** : stockée dans `{base_dir}/memory.json`. Utilisée quand aucun agent spécifique n'est actif ou quand l'agent n'a pas de fichier de mémoire par agent.
+- **Mémoire par agent** : stockée dans `{base_dir}/agents/{agent_name}/memory.json`. Utilisée quand un agent personnalisé est actif, maintenant les connaissances apprises de cet agent séparées.
+
+Le `MemoryMiddleware` sélectionne automatiquement le bon fichier de mémoire en fonction du `agent_name` actif dans la configuration de la requête.
+
+Les noms d'agents utilisés pour le stockage de mémoire sont validés contre `AGENT_NAME_PATTERN` pour assurer la sécurité du système de fichiers.
+
+## Emplacement de stockage
+
+Par défaut, les fichiers de mémoire sont stockés sous le répertoire de base backend :
+
+- Répertoire de base : `backend/.deer-flow/`
+- Mémoire globale : `backend/.deer-flow/memory.json`
+- Mémoire par agent : `backend/.deer-flow/agents/{agent_name}/memory.json`
+
+Vous pouvez changer le chemin de stockage avec le champ `storage_path`. Les chemins relatifs sont résolus par rapport au répertoire de base. Utilisez un chemin absolu pour stocker la mémoire dans un emplacement personnalisé.
+
+## Backend de stockage personnalisé
+
+Le champ `storage_class` vous permet de remplacer le stockage par défaut basé sur fichier par une implémentation personnalisée. Toute classe qui étend `MemoryStorage` et implémente les méthodes `load()`, `reload()` et `save()` peut être utilisée :
+
+```yaml
+memory:
+  storage_class: mypackage.storage.RedisMemoryStorage
+```
+
+Si la classe configurée ne peut pas être chargée, le système se replie sur le `FileMemoryStorage` par défaut et enregistre une erreur.
+
+## Désactiver la mémoire
+
+Pour désactiver entièrement la mémoire :
+
+```yaml
+memory:
+  enabled: false
+```
+
+Pour conserver le stockage de mémoire mais empêcher l'injection dans le prompt système :
+
+```yaml
+memory:
+  enabled: true
+  injection_enabled: false
+```
+
+<Cards num={2}>
+  <Cards.Card title="Configuration" href="/docs/harness/configuration" />
+  <Cards.Card title="Middlewares" href="/docs/harness/middlewares" />
+</Cards>

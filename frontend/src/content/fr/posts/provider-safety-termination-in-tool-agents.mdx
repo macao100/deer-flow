@@ -1,0 +1,124 @@
+---
+title: Les agents utilisant des outils doivent gérer correctement les signaux de terminaison de sécurité des fournisseurs
+description: Pourquoi les appels d'outils présents dans une réponse de modèle interrompue pour sécurité ne doivent pas être exécutés, et comment configurer les détecteurs de fournisseurs dans DeerFlow.
+date: 2026-05-22
+tags:
+  - Sécurité
+  - Agents
+  - Fournisseurs de modèles
+---
+
+## Les agents utilisant des outils doivent gérer correctement les signaux de terminaison de sécurité des fournisseurs
+
+Lorsqu'un fournisseur de grand modèle de langage décide qu'une entrée ou une sortie a déclenché une politique de sécurité, le résultat important n'est pas seulement que le modèle en dit moins. L'application doit savoir que le tour de génération en cours a été interrompu. Dans une interface de chat normale, cela peut apparaître comme un refus, du texte filtré, ou une réponse d'erreur. Pour un agent capable d'appeler des outils, le risque est plus élevé : si le fournisseur a déjà arrêté la génération alors que la réponse contient encore des `tool_calls`, les arguments de ces outils peuvent n'être que partiellement générés.
+
+Ces appels d'outils partiels ne doivent pas être exécutés comme une intention normale. Un appel `write_file` tronqué peut écrire un rapport incomplet. Un appel `bash` tronqué peut entrer dans le sandbox avec des arguments incomplets. Après avoir vu le résultat raté, l'agent peut réessayer et déclencher la même règle de sécurité à répétition.
+
+La [PR #3035](https://github.com/bytedance/deer-flow/pull/3035) traite cette frontière : lorsqu'un fournisseur arrête la génération avec un signal de sécurité alors que la réponse contient encore des appels d'outils, DeerFlow doit d'abord supprimer ces appels d'outils et enregistrer le tour comme un événement de terminaison de sécurité.
+
+## Pourquoi la terminaison de sécurité nécessite une gestion dédiée
+
+Une terminaison de sécurité n'est pas une raison de fin normale d'appel d'outil.
+
+Dans un tour d'outil sain, le fournisseur indique explicitement à l'application qu'elle doit appeler des outils. Une terminaison de sécurité dit quelque chose de différent : la sortie a été bloquée par la politique du fournisseur, ou la génération en streaming a été interrompue prématurément. Même si des fragments d'appels d'outils restent dans l'objet de réponse, l'application ne peut pas supposer que leurs arguments JSON, le contenu des fichiers, ou le texte des commandes sont complets.
+
+Dans un vrai run d'agent, cela crée deux types de risques :
+
+| Risque | Impact |
+| --- | --- |
+| Risque d'exécution | Exécuter des arguments d'outils tronqués peut créer des fichiers corrompus, des commandes malformées, des tentatives répétées, ou des boucles d'outils |
+| Risque fournisseur | Envoyer à répétition des entrées ou sorties similaires violant les règles à un fournisseur augmente la pression de revue de sécurité et de contrôle des abus |
+
+Le second risque est important. Les fournisseurs appliquent leurs politiques différemment, mais leurs documents officiels indiquent déjà que la politique de sécurité peut affecter plus qu'une seule complétion. Elle peut aussi affecter les utilisateurs finaux, l'accès à l'API, ou le statut du compte.
+
+## Ce que les fournisseurs exposent et comment ils répondent
+
+Les fournisseurs n'utilisent pas un seul nom de champ commun, et ils ne partagent pas un seul processus d'application. Les déploiements doivent distinguer au moins deux couches :
+
+1. Quel signal dans cette réponse indique que la génération a été arrêtée par une politique de sécurité.
+2. Quelles actions de suivi le fournisseur a publiquement décrites en cas de problèmes de sécurité récurrents.
+
+| Fournisseur | Signal d'exécution | Réponse ou recommandation publiquement documentée |
+| --- | --- | --- |
+| GLM | Les appels synchrones peuvent retourner une erreur d'audit de sécurité ; la sortie en streaming peut se terminer avec `finish_reason="sensitive"` | Passer `user_id` pour distinguer les utilisateurs finaux ; la plateforme peut bloquer les requêtes des utilisateurs finaux violant les règles pour que les comptes entreprise ne soient pas affectés par les abus des utilisateurs finaux |
+| OpenAI | Les Chat Completions peuvent retourner `finish_reason="content_filter"` | Utiliser Moderation et `safety_identifier` ; des violations répétées de la politique d'utilisation peuvent entraîner des avertissements, des restrictions, ou la désactivation du compte |
+| Anthropic | Les refus en streaming peuvent être exposés via `stop_reason="refusal"` | Réinitialiser, réécrire, ou réduire le contexte après un refus ; l'AUP décrit la limitation des requêtes, la modification des sorties, la suspension ou la résiliation |
+| Gemini | Un candidat filtré pour sécurité peut retourner `finishReason=SAFETY`, et le contenu bloqué n'est pas retourné | La surveillance des abus couvre les prompts et les sorties ; les actions de suivi peuvent escalader du contact du développeur aux restrictions temporaires, à la suspension, ou à la fermeture du compte |
+| DeepSeek | Le `finish_reason` de la complétion de chat inclut `content_filter` | Le champ `user` peut aider la revue de sécurité du contenu ; les violations potentielles des directives d'utilisation peuvent déclencher un protocole de suspension temporaire |
+
+GLM est l'exemple le plus direct. Sa documentation d'audit de sécurité décrit le signal de fin de sécurité en streaming, la recommandation d'identifier les utilisateurs finaux, et la possibilité de bloquer les requêtes des utilisateurs finaux violant les règles. [Documentation d'audit de sécurité GLM](https://docs.bigmodel.cn/cn/guide/platform/securityaudit)
+
+OpenAI définit `content_filter` comme raison de fin des Chat Completions. Ses meilleures pratiques de sécurité recommandent d'utiliser `safety_identifier` pour les utilisateurs finaux afin que les violations de politique puissent être attribuées plus précisément qu'une seule clé API partagée. La documentation d'aide OpenAI indique également que des violations répétées de la politique d'utilisation peuvent entraîner la désactivation du compte. [Meilleures pratiques de sécurité](https://developers.openai.com/api/docs/guides/safety-best-practices/) [Pourquoi mon compte OpenAI a-t-il été désactivé ?](https://help.openai.com/en/articles/10562188)
+
+Anthropic distingue les arrêts ordinaires des refus de sécurité dans son guide de refus en streaming Claude : lorsque le classificateur de streaming intervient, la réponse peut porter `stop_reason="refusal"`. Il recommande également que les applications ne réinjectent pas le contenu refusé dans le contexte ultérieur, et qu'elles réinitialisent plutôt la conversation, réécrivent le prompt, ou réduisent la tâche. L'AUP d'Anthropic indique qu'il peut limiter les requêtes, bloquer ou modifier les sorties, et suspendre ou résilier l'accès si nécessaire. [Gérer les refus en streaming](https://platform.claude.com/docs/en/test-and-evaluate/strengthen-guardrails/handle-streaming-refusals) [Politique d'utilisation acceptable](https://www.anthropic.com/legal/aup)
+
+La documentation de sécurité Gemini souligne une autre forme d'intervention. Un prompt peut être bloqué avant la génération, et un candidat peut être filtré après la génération. Lorsqu'un candidat de réponse est arrêté par une politique de sécurité, la réponse peut exposer `finishReason=SAFETY` sans retourner le contenu bloqué lui-même. Les conditions d'utilisation de l'API Gemini indiquent également que la surveillance des abus couvre les prompts et les sorties et liste des actions de suivi progressivement plus fortes. [Paramètres de sécurité Gemini](https://ai.google.dev/gemini-api/docs/safety-settings) [Conditions d'utilisation supplémentaires de l'API Gemini](https://ai.google.dev/gemini-api/terms)
+
+DeepSeek liste `content_filter` comme raison de fin de complétion de chat et décrit le champ `user` de la requête comme utile pour la revue de sécurité du contenu. Sa FAQ indique également que des violations potentielles des directives d'utilisation peuvent déclencher un processus de suspension temporaire. [Créer une complétion de chat](https://api-docs.deepseek.com/api/create-chat-completion)
+
+Certains fournisseurs interviennent plus tôt ou à une couche extérieure au message du modèle. Par exemple, Azure OpenAI indique aux applications d'inspecter `finish_reason` car `content_filter` peut laisser une complétion incomplète. Amazon Bedrock Guardrails peut retourner `stopReason="guardrail_intervened"` dans une réponse. Dans les exemples de guardrails d'Alibaba Cloud Model Studio, le blocage côté sortie peut également apparaître directement comme une erreur `DataInspectionFailed`. Ensemble, ces exemples montrent qu'une intervention de sécurité peut être un signal d'arrêt dans un message de modèle ou une erreur au niveau de l'API. Les applications ont besoin de plus d'un chemin de gestion. [Filtrage de contenu Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/content-filter) [Amazon Bedrock Guardrails](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails-use-converse-api.html)
+
+## Ce que fait DeerFlow à cette frontière
+
+`SafetyFinishReasonMiddleware` a une responsabilité étroite. Il ne remplace pas la revue de contenu du fournisseur, et il ne réécrit pas chaque refus en une même erreur. Il intervient uniquement lorsque les deux conditions ci-dessous sont vraies :
+
+1. La réponse du fournisseur porte un signal de terminaison de sécurité configuré.
+2. L'`AIMessage` actuel contient encore des `tool_calls` non vides.
+
+Lorsqu'il intervient, il :
+
+1. Efface les appels d'outils structurés et les champs d'appels d'outils résiduels dans les métadonnées brutes du fournisseur.
+2. Empêche ces arguments d'outils d'atteindre le nœud d'outils pour exécution.
+3. Préserve le texte partiel déjà généré et ajoute une explication visible par l'utilisateur.
+4. Enregistre le détecteur, le champ de raison, la valeur de raison, et les noms et comptes d'outils supprimés.
+5. Évite d'écrire des arguments d'outils pouvant eux-mêmes contenir du contenu filtré dans les événements d'audit à nouveau.
+
+Cela fait prendre priorité au signal de terminaison de sécurité sur le fait que des appels d'outils sont présents dans la réponse. Pour le runtime de l'agent, c'est le flux de contrôle le plus conservateur et le plus correct.
+
+## Configuration par défaut
+
+La configuration par défaut nécessite uniquement d'activer `safety_finish_reason` :
+
+```yaml
+safety_finish_reason:
+  enabled: true
+```
+
+Lorsque `detectors` n'est pas configuré explicitement, DeerFlow utilise l'ensemble de détecteurs intégrés :
+
+| Détecteur | Correspondance par défaut |
+| --- | --- |
+| `OpenAICompatibleContentFilterDetector` | `finish_reason="content_filter"` |
+| `AnthropicRefusalDetector` | `stop_reason="refusal"` |
+| `GeminiSafetyDetector` | Valeurs de `finish_reason` liées à la sécurité Gemini telles que `SAFETY`, `BLOCKLIST`, `PROHIBITED_CONTENT`, `SPII`, et `RECITATION` |
+
+Cet ensemble par défaut couvre les chemins DeerFlow courants pour les fournisseurs compatibles OpenAI, Anthropic et Gemini. Il ne traite pas un `finish_reason="tool_calls"` normal comme une terminaison de sécurité, et il n'inclut pas la troncature de longueur telle que `length` ou `max_tokens` dans la catégorie de sécurité.
+
+## Exemple : étendre le signal de fin de sécurité en streaming pour GLM
+
+Les réponses en streaming GLM utilisent `sensitive` comme valeur de fin de sécurité. Si l'adaptateur actuel préserve cette valeur dans `AIMessage.response_metadata.finish_reason` ou `additional_kwargs.finish_reason`, elle peut être gérée via l'ensemble de raisons de fin configurable sur le détecteur compatible OpenAI :
+
+```yaml
+safety_finish_reason:
+  enabled: true
+  detectors:
+    - use: deerflow.agents.middlewares.safety_termination_detectors:OpenAICompatibleContentFilterDetector
+      config:
+        finish_reasons: ["content_filter", "sensitive"]
+
+    - use: deerflow.agents.middlewares.safety_termination_detectors:AnthropicRefusalDetector
+
+    - use: deerflow.agents.middlewares.safety_termination_detectors:GeminiSafetyDetector
+```
+
+Deux détails de configuration sont importants ici.
+
+Premièrement, `detectors` remplace la liste par défaut. Il n'ajoute pas un élément à celle-ci. L'exemple conserve donc les détecteurs Anthropic et Gemini tout en ajoutant la valeur `sensitive` de GLM.
+
+Deuxièmement, ce middleware gère les signaux de fin de sécurité qui ont déjà atteint un message de modèle. Si le fournisseur retourne une erreur d'audit de sécurité au niveau de l'API, comme une erreur de code d'audit de sécurité GLM synchrone, l'appelant doit toujours la gérer dans le chemin d'erreur LLM ou API.
+
+## Périmètre
+
+`SafetyFinishReasonMiddleware` résout un problème spécifique de flux de contrôle d'agent. Ce n'est pas une solution complète de sécurité du contenu. Il ne remplace pas la modération, l'isolation des permissions, la gouvernance des utilisateurs, ou la revue côté fournisseur, et il ne couvre pas chaque refus en texte simple.
+
+Cette frontière mérite néanmoins d'être protégée explicitement : lorsqu'un fournisseur a déjà arrêté la sortie pour des raisons de sécurité, un agent utilisant des outils doit traiter ce tour comme une sortie interrompue, et non comme une intention d'outil exécutable.

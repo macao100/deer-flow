@@ -1,0 +1,95 @@
+---
+title: Documentation DeerFlow
+description: Comprendre DeerFlow, construire avec le Harness et déployer l'App.
+---
+
+# Documentation DeerFlow
+
+DeerFlow est un framework pour construire et opérer des systèmes d'agents. Il vous offre un harness d'exécution pour composer des agents avec de la mémoire, des outils, des skills, des sandbox et des sous-agents. Il fournit également une couche applicative qui transforme ces capacités en une expérience produit utilisable.
+
+Cette documentation est organisée autour de ces deux parties :
+
+- **DeerFlow Harness** : le SDK et la couche d'exécution pour construire votre propre système d'agents.
+- **DeerFlow App** : une application de référence construite sur le Harness pour le déploiement, les opérations et les workflows utilisateurs.
+
+Si vous souhaitez comprendre le fonctionnement de DeerFlow, commencez par l'Introduction. Si vous souhaitez construire sur le runtime, consultez la documentation du Harness. Si vous souhaitez déployer et utiliser DeerFlow comme application, consultez la documentation de l'App.
+
+## Par où commencer
+
+### Si vous découvrez DeerFlow
+
+Commencez par la vue d'ensemble conceptuelle.
+
+- [Introduction](./docs/introduction)
+- [Pourquoi DeerFlow](./docs/introduction/why-deerflow)
+- [Harness vs App](./docs/introduction/harness-vs-app)
+
+### Si vous souhaitez construire avec DeerFlow
+
+Commencez par la section Harness. Ce parcours est destiné aux équipes qui souhaitent intégrer les capacités de DeerFlow dans leur propre système ou construire un produit d'agents personnalisé sur le runtime DeerFlow.
+
+- [DeerFlow Harness](./docs/harness)
+- [Démarrage rapide](./docs/harness/quick-start)
+- [Configuration](./docs/harness/configuration)
+- [Personnalisation](./docs/harness/customization)
+
+### Si vous souhaitez déployer et utiliser DeerFlow
+
+Commencez par la section App. Ce parcours est destiné aux équipes qui souhaitent exécuter DeerFlow comme une application complète et comprendre comment la configurer, l'opérer et l'utiliser en pratique.
+
+- [DeerFlow App](./docs/app)
+- [Démarrage rapide](./docs/app/quick-start)
+- [Guide de déploiement](./docs/app/deployment-guide)
+- [Utilisation du workspace](./docs/app/workspace-usage)
+
+## Structure de la documentation
+
+### Introduction
+
+La section Introduction vous aide à construire le bon modèle mental avant d'aborder les détails d'implémentation.
+
+- **Qu'est-ce que DeerFlow** explique ce qu'est DeerFlow et les problèmes qu'il est conçu pour résoudre.
+- **Pourquoi DeerFlow** explique la motivation derrière le projet.
+- **Concepts clés** introduit les concepts qui apparaissent dans toute la documentation.
+- **Harness vs App** explique la relation entre la couche d'exécution et la couche applicative.
+
+### DeerFlow Harness
+
+La section Harness est le cœur de la documentation technique. Elle est destinée aux développeurs qui souhaitent construire leur propre système basé sur DeerFlow.
+
+- **Démarrage rapide** montre comment créer votre premier harness avec l'API DeerFlow.
+- **Principes de conception** explique les idées architecturales derrière le Harness.
+- **Configuration** couvre la surface de configuration principale du SDK/runtime.
+- **Mémoire**, **Outils**, **Skills** et **Sandbox** expliquent séparément les principales capacités du système.
+- **Personnalisation** montre comment adapter DeerFlow à vos propres besoins produit.
+- **Guide d'intégration** explique comment intégrer le Harness dans un système plus large.
+
+### DeerFlow App
+
+La section App est destinée aux équipes qui souhaitent déployer DeerFlow comme produit utilisable.
+
+- **Démarrage rapide** vous aide à exécuter l'application en local.
+- **Guide de déploiement** explique comment déployer DeerFlow dans votre propre environnement.
+- **Configuration** couvre le modèle de configuration au niveau applicatif.
+- **Utilisation du workspace** explique les principaux workflows utilisateurs.
+- **Agents et threads** explique comment les utilisateurs interagissent avec DeerFlow en pratique.
+- **Opérations et dépannage** couvre la maintenance et l'utilisation en production.
+
+### Tutoriels
+
+La section Tutoriels est destinée à l'apprentissage pratique et orienté tâches.
+
+- [Tutoriels](./docs/tutorials)
+
+### Référence
+
+La section Référence contient du matériel de consultation détaillé, notamment la configuration, les modes d'exécution, les APIs et le mapping orienté sources.
+
+- [Référence](./docs/reference)
+
+## Choisir le bon parcours
+
+- Si vous **évaluez le projet**, commencez par [Introduction](./docs/introduction).
+- Si vous **construisez votre propre système d'agents**, commencez par [DeerFlow Harness](./docs/harness).
+- Si vous **déployez DeerFlow pour des utilisateurs**, commencez par [DeerFlow App](./docs/app).
+- Si vous souhaitez **apprendre en pratiquant**, allez aux [Tutoriels](./docs/tutorials).

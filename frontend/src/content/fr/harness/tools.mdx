@@ -1,0 +1,261 @@
+---
+title: Outils
+description: "Le Lead Agent est un agent appelant des outils. Les outils sont la façon dont il interagit avec le monde : recherche sur le web, lecture et écriture de fichiers, exécution de commandes, délégation de tâches et présentation de sorties à l'utilisateur."
+---
+
+import { Callout, Cards, Tabs } from "nextra/components";
+
+# Outils
+
+<Callout type="info" emoji="🔧">
+  Les outils sont les actions que le Lead Agent peut effectuer. DeerFlow fournit
+  des outils intégrés, des intégrations communautaires, des outils MCP et des
+  outils de skill — tous contrôlés via <code>config.yaml</code>.
+</Callout>
+
+Le Lead Agent est un agent appelant des outils. Les outils sont la façon dont il interagit avec le monde : recherche sur le web, lecture et écriture de fichiers, exécution de commandes, délégation de tâches et présentation de sorties à l'utilisateur.
+
+DeerFlow organise les outils en quatre catégories :
+
+1. **Outils intégrés** — capacités d'exécution de base toujours disponibles pour l'agent
+2. **Outils communautaires** — intégrations avec des services externes de recherche, récupération et image
+3. **Outils MCP** — outils fournis par des serveurs externes Model Context Protocol
+4. **Outils de skill** — outils fournis avec des packs de skill spécifiques
+
+## Outils intégrés
+
+Les outils intégrés font partie du harness et ne nécessitent pas de configuration pour être disponibles.
+
+### task
+
+Délègue une sous-tâche à un sous-agent. Le Lead Agent utilise cet outil quand une tâche est trop large pour un seul thread de raisonnement ou quand du travail parallèle serait bénéfique.
+
+```
+task(agent="general-purpose", task="...", context="...")
+```
+
+Consultez la page [Sous-agents](/docs/harness/subagents) pour la configuration des sous-agents.
+
+---
+
+### present_files
+
+Présente les fichiers de sortie à l'utilisateur comme des artefacts. L'agent appelle cet outil après avoir produit un fichier (rapport, graphique, code, etc.) pour le rendre visible dans la conversation.
+
+Les fichiers à `/mnt/user-data/uploads/*` sont copiés dans `/mnt/user-data/outputs/*` avant d'être présentés. Les chemins des artefacts sont suivis dans `ThreadState.artifacts`.
+
+---
+
+### view_image
+
+Lit un fichier image et injecte son contenu dans le contexte du modèle pour une analyse visuelle. Uniquement disponible quand le modèle actif a `supports_vision: true`.
+
+---
+
+### clarification
+
+Pose une question de clarification à l'utilisateur avant de procéder. Cela est déclenché par le `ClarificationMiddleware` quand le modèle décide qu'il n'a pas assez d'informations pour agir.
+
+---
+
+### setup_agent
+
+Configure dynamiquement la session d'agent actuelle. Utilisé pendant le flux bootstrap lors de la configuration d'un nouvel agent personnalisé.
+
+---
+
+### update_agent
+
+Persiste les mises à jour vers le `SOUL.md` et `config.yaml` de l'agent personnalisé actuel. Lié au lead agent uniquement quand un agent personnalisé est actif (`agent_name` est défini dans le contexte d'exécution). Utilisez ceci quand l'utilisateur demande à l'agent d'affiner sa propre description, personnalité, whitelist de skills, whitelist de groupes d'outils ou modèle par défaut — il écrit directement dans le layout par utilisateur `{base_dir}/users/{user_id}/agents/{agent_name}/`, donc le changement est pris en compte automatiquement au prochain tour utilisateur. Seuls les champs que vous passez explicitement sont mis à jour ; omettez un champ pour préserver sa valeur existante. Passez `skills=[]` pour désactiver toutes les skills, ou omettez `skills` pour conserver la whitelist existante.
+
+---
+
+### invoke_acp_agent
+
+Invoque un agent externe en utilisant l'[Agent Connect Protocol (ACP)](https://agentconnectprotocol.org/). Nécessite une configuration `acp_agents:` dans `config.yaml`. Consultez la page [Sous-agents](/docs/harness/subagents) pour la configuration ACP.
+
+---
+
+### tool_search
+
+Recherche des outils par nom ou description et les charge dans le contexte de l'agent à la demande. Uniquement actif quand `tool_search.enabled: true` dans `config.yaml`. Utile quand les serveurs MCP ou d'autres ensembles d'outils exposent de nombreux outils et que vous voulez réduire l'utilisation du contexte.
+
+## Outils de fichiers sandbox
+
+Les outils suivants interagissent avec le système de fichiers du sandbox. Ils nécessitent qu'un sandbox soit configuré et actif.
+
+| Outil         | Description                                                                              |
+| ------------- | ---------------------------------------------------------------------------------------- |
+| `ls`          | Lister les fichiers dans un répertoire                                                   |
+| `read_file`   | Lire le contenu d'un fichier                                                             |
+| `glob`        | Trouver des fichiers correspondant à un pattern                                          |
+| `grep`        | Chercher dans le contenu de fichiers                                                     |
+| `write_file`  | Écrire du contenu dans un fichier                                                        |
+| `str_replace` | Remplacer une chaîne dans un fichier                                                     |
+| `bash`        | Exécuter une commande shell (nécessite `allow_host_bash: true` ou un sandbox conteneur)  |
+
+Ils sont configurés dans `config.yaml` sous `tools:` :
+
+```yaml
+tools:
+  - use: deerflow.sandbox.tools:ls_tool
+  - use: deerflow.sandbox.tools:read_file_tool
+  - use: deerflow.sandbox.tools:glob_tool
+  - use: deerflow.sandbox.tools:grep_tool
+  - use: deerflow.sandbox.tools:write_file_tool
+  - use: deerflow.sandbox.tools:str_replace_tool
+  - use: deerflow.sandbox.tools:bash_tool # nécessite bash hôte ou sandbox conteneur
+```
+
+## Outils communautaires
+
+Les outils communautaires connectent l'agent à des services externes. Ils sont configurés dans `config.yaml` sous `tools:` en utilisant le champ `use:` pour spécifier l'implémentation.
+
+### Recherche web
+
+<Tabs items={["DuckDuckGo (défaut)", "Tavily", "Brave", "Exa", "InfoQuest", "Firecrawl"]}>
+  <Tabs.Tab>
+```yaml
+tools:
+  - use: deerflow.community.ddg_search.tools:web_search_tool
+```
+Aucune clé API requise. Configuration par défaut. Adapté au développement et à l'usage général.
+  </Tabs.Tab>
+  <Tabs.Tab>
+```yaml
+tools:
+  - use: deerflow.community.tavily.tools:web_search_tool
+    api_key: $TAVILY_API_KEY
+```
+Recherche de haute qualité avec des résultats structurés. Nécessite une clé API [Tavily](https://tavily.com).
+
+Installation : `cd backend && uv add 'deerflow-harness[tavily]'`
+
+  </Tabs.Tab>
+  <Tabs.Tab>
+```yaml
+tools:
+  - use: deerflow.community.brave.tools:web_search_tool
+    api_key: $BRAVE_SEARCH_API_KEY
+```
+Résultats de l'index indépendant de Brave via l'[API Brave Search](https://brave.com/search/api/) officielle. Nécessite une clé API. `max_results` est limité à 20.
+
+Aucune dépendance supplémentaire requise.
+
+  </Tabs.Tab>
+  <Tabs.Tab>
+```yaml
+tools:
+  - use: deerflow.community.exa.tools:web_search_tool
+    api_key: $EXA_API_KEY
+```
+Recherche sémantique avec récupération neurale. Nécessite une clé API [Exa](https://exa.ai).
+
+Installation : `cd backend && uv add 'deerflow-harness[exa]'`
+
+  </Tabs.Tab>
+  <Tabs.Tab>
+```yaml
+tools:
+  - use: deerflow.community.infoquest.tools:web_search_tool
+    api_key: $INFOQUEST_API_KEY
+```
+Intégration de recherche InfoQuest.
+  </Tabs.Tab>
+  <Tabs.Tab>
+```yaml
+tools:
+  - use: deerflow.community.firecrawl.tools:web_search_tool
+    api_key: $FIRECRAWL_API_KEY
+```
+Recherche et crawl propulsés par Firecrawl. Nécessite une clé API [Firecrawl](https://firecrawl.dev).
+
+Installation : `cd backend && uv add 'deerflow-harness[firecrawl]'`
+
+  </Tabs.Tab>
+</Tabs>
+
+### Récupération web (extraction du contenu de page)
+
+<Tabs items={["Jina AI (défaut)", "Exa", "InfoQuest", "Firecrawl"]}>
+  <Tabs.Tab>
+```yaml
+tools:
+  - use: deerflow.community.jina_ai.tools:web_fetch_tool
+    api_key: $JINA_API_KEY # optionnel ; l'usage anonyme a des limites de débit
+```
+Convertit les pages web en Markdown propre. Fonctionne sans clé API avec des limites de débit réduites.
+  </Tabs.Tab>
+  <Tabs.Tab>
+```yaml
+tools:
+  - use: deerflow.community.exa.tools:web_fetch_tool
+    api_key: $EXA_API_KEY
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```yaml
+tools:
+  - use: deerflow.community.infoquest.tools:web_fetch_tool
+    api_key: $INFOQUEST_API_KEY
+```
+  </Tabs.Tab>
+  <Tabs.Tab>
+```yaml
+tools:
+  - use: deerflow.community.firecrawl.tools:web_fetch_tool
+    api_key: $FIRECRAWL_API_KEY
+```
+  </Tabs.Tab>
+</Tabs>
+
+### Recherche d'images
+
+```yaml
+tools:
+  - use: deerflow.community.image_search.tools:image_search_tool
+  # Ou utiliser InfoQuest :
+  # - use: deerflow.community.infoquest.tools:image_search_tool
+  #   api_key: $INFOQUEST_API_KEY
+```
+
+## Groupes d'outils
+
+Les groupes d'outils vous permettent d'organiser les outils en ensembles nommés et de restreindre les groupes auxquels un agent personnalisé peut accéder.
+
+```yaml
+tool_groups:
+  - name: research
+    tools:
+      - web_search
+      - web_fetch
+      - image_search
+  - name: coding
+    tools:
+      - bash
+      - read_file
+      - write_file
+      - str_replace
+      - glob
+      - grep
+```
+
+Les agents personnalisés peuvent ensuite référencer un groupe par nom dans leur configuration, restreignant leur accès aux outils uniquement à l'ensemble pertinent.
+
+## Tool search (chargement différé)
+
+Quand vous avez de nombreux outils (surtout depuis plusieurs serveurs MCP), les charger tous en amont augmente l'utilisation du contexte et peut confondre le modèle. La fonctionnalité tool search répond à cela :
+
+```yaml
+tool_search:
+  enabled: true
+```
+
+Quand activé, les outils ne sont pas listés directement dans le contexte du modèle. Au lieu de cela, ils sont découvrables à l'exécution via l'outil intégré `tool_search`. L'agent recherche par nom ou description et les outils correspondants sont chargés dans le contexte à la demande.
+
+C'est particulièrement utile quand les serveurs MCP exposent des dizaines d'outils.
+
+<Cards num={2}>
+  <Cards.Card title="Intégration MCP" href="/docs/harness/mcp" />
+  <Cards.Card title="Skills" href="/docs/harness/skills" />
+</Cards>

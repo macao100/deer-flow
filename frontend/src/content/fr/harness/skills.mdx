@@ -1,0 +1,167 @@
+---
+title: Skills
+description: Une skill est plus qu'un prompt. C'est un package de capacité autonome qui peut inclure des instructions structurées, des workflows étape par étape, des bonnes pratiques spécifiques au domaine, des ressources de support et des configurations d'outils. Les skills sont chargées à la demande — elles injectent leur contenu quand une tâche les requiert et restent hors du contexte autrement.
+---
+
+import { Callout, Cards, FileTree, Steps } from "nextra/components";
+
+# Skills
+
+<Callout type="info" emoji="🎯">
+  Les skills sont des packages de capacité orientés tâche qui apprennent à
+  l'agent comment effectuer une classe spécifique de travail. L'agent de base
+  reste général ; les skills fournissent la spécialisation uniquement quand
+  nécessaire.
+</Callout>
+
+Une skill est plus qu'un prompt. C'est un package de capacité autonome qui peut inclure des instructions structurées, des workflows étape par étape, des bonnes pratiques spécifiques au domaine, des ressources de support et des configurations d'outils. Les skills sont chargées à la demande — elles injectent leur contenu quand une tâche les requiert et restent hors du contexte autrement.
+
+## Ce que contient une skill
+
+Chaque skill vit dans son propre sous-répertoire sous `skills/public/` (ou `skills/custom/` pour les skills créées par l'utilisateur). Le répertoire contient un fichier `SKILL.md` qui définit les métadonnées, les instructions et le workflow de la skill.
+
+<FileTree>
+  <FileTree.Folder name="skills/" defaultOpen>
+    <FileTree.Folder name="public/" defaultOpen>
+      <FileTree.Folder name="deep-research/" defaultOpen>
+        <FileTree.File name="SKILL.md" />
+      </FileTree.Folder>
+      <FileTree.Folder name="data-analysis/">
+        <FileTree.File name="SKILL.md" />
+      </FileTree.Folder>
+      <FileTree.Folder name="chart-visualization/">
+        <FileTree.File name="SKILL.md" />
+      </FileTree.Folder>
+    </FileTree.Folder>
+    <FileTree.Folder name="custom/">
+      <FileTree.File name="(vos skills personnalisées ici)" />
+    </FileTree.Folder>
+  </FileTree.Folder>
+</FileTree>
+
+Le fichier `SKILL.md` est la définition faisant autorité de la skill. Il est analysé par `skills/parser.py` pour extraire le nom, la description, la catégorie, les instructions et les éventuelles dépendances ou exigences d'outils de la skill.
+
+## Skills intégrées
+
+DeerFlow est livré avec les skills publiques suivantes :
+
+| Skill                          | Description                                                                                |
+| ------------------------------ | ------------------------------------------------------------------------------------------ |
+| `deep-research`                | Recherche multi-étapes avec collecte de sources, vérification croisée et sortie structurée |
+| `data-analysis`                | Exploration de données, analyse statistique et génération d'insights                       |
+| `chart-visualization`          | Création de graphiques et diagrammes à partir de données                                   |
+| `ppt-generation`               | Génération de diapositives de présentation                                                 |
+| `image-generation`             | Workflows de génération d'images IA                                                        |
+| `code-documentation`           | Génération automatique de documentation de code                                            |
+| `newsletter-generation`        | Création de contenu de newsletter                                                          |
+| `podcast-generation`           | Génération de scripts et plans de podcast                                                  |
+| `academic-paper-review`        | Analyse structurée de papiers académiques                                                  |
+| `consulting-analysis`          | Frameworks de conseil en entreprise et analyse                                             |
+| `systematic-literature-review` | Méthodologie de revue de littérature et synthèse                                           |
+| `github-deep-research`         | Recherche approfondie de dépôts et code                                                    |
+| `frontend-design`              | Workflow de design frontend et UI                                                          |
+| `web-design-guidelines`        | Standards de design web et revue                                                           |
+| `video-generation`             | Planification et génération de contenu vidéo                                               |
+
+## Cycle de vie d'une skill
+
+<Steps>
+
+### Découverte et chargement
+
+`load_skills()` dans `skills/loader.py` scanne les répertoires `public/` et `custom/` sous le chemin de skills configuré. Il relit `ExtensionsConfig.from_file()` à chaque appel, ce qui signifie qu'activer ou désactiver une skill via l'API Gateway prend effet immédiatement dans le runtime d'agent en cours d'exécution sans redémarrage.
+
+### Analyse
+
+`parser.py` lit chaque fichier `SKILL.md` et extrait les métadonnées structurées : nom, description, catégorie, instructions, et toutes les exigences d'outils ou de ressources.
+
+### Scan de sécurité
+
+`security_scanner.py` vérifie le contenu des skills pour détecter des patterns potentiellement dangereux avant qu'il soit chargé dans le contexte de l'agent. Cette étape s'exécute pendant le chargement des skills pour empêcher l'injection de contenu de skill malveillant.
+
+### Installation des dépendances
+
+`installer.py` gère les éventuelles dépendances Python ou système déclarées par la skill. Les dépendances sont installées dans l'environnement d'exécution quand la skill est chargée pour la première fois.
+
+### Injection de contexte
+
+Quand l'agent est invoqué avec une skill spécifique en scope, les instructions de la skill sont injectées dans le prompt système. L'agent a alors accès au workflow, aux bonnes pratiques et aux connaissances de domaine de la skill pour la durée de cette conversation.
+
+</Steps>
+
+## Configuration
+
+Le système de skills est configuré sous `skills:` dans `config.yaml` :
+
+```yaml
+skills:
+  # Chemin vers le répertoire de skills sur l'hôte.
+  # Par défaut : ../skills relatif au répertoire backend.
+  # Décommenter pour personnaliser :
+  # path: /absolute/path/to/custom/skills
+
+  # Chemin où les skills sont montées dans le conteneur sandbox.
+  # L'agent utilise ce chemin pour accéder aux fichiers de skill pendant l'exécution.
+  container_path: /mnt/skills
+```
+
+Le `container_path` est important : il indique à l'agent où trouver les ressources de skill dans le sandbox. Le harness monte automatiquement le répertoire de skills de l'hôte vers ce chemin de conteneur.
+
+## Activer et désactiver les skills
+
+La disponibilité des skills est suivie dans `extensions_config.json` (séparé de `config.yaml`). Vous pouvez gérer l'état des skills :
+
+- **Via l'interface de l'application DeerFlow** : le panneau de skills vous permet d'activer et désactiver les skills.
+- **Via l'API Gateway** : `POST /api/extensions/skills/{name}/enable` et `/disable`.
+- **En éditant `extensions_config.json` directement**.
+
+Comme `load_skills()` relit la config des extensions à chaque appel, les changements prennent effet immédiatement — aucun redémarrage du serveur requis.
+
+## Restreindre les skills par agent personnalisé
+
+Un agent personnalisé peut être restreint à un sous-ensemble spécifique de skills. Dans la config de l'agent (stockée dans `agents/{name}/config.yaml`), définissez une liste `skills` :
+
+```yaml
+# agents/my-researcher/config.yaml
+name: my-researcher
+skills:
+  - deep-research
+  - academic-paper-review
+  # Omettre toutes les autres skills
+```
+
+- **Omis ou null** : l'agent charge toutes les skills activées globalement.
+- **Liste vide `[]`** : l'agent n'a pas de skills.
+- **Liste nommée** : l'agent charge uniquement ces skills spécifiques.
+
+## Évolution des skills
+
+DeerFlow inclut une fonctionnalité optionnelle d'**évolution des skills** qui permet à l'agent de créer et améliorer de manière autonome les skills dans le répertoire `skills/custom/` :
+
+```yaml
+skill_evolution:
+  enabled: false # Mettre à true pour permettre la création de skills gérée par l'agent
+  moderation_model_name: null # Modèle pour le scan de sécurité (null = utiliser le défaut)
+```
+
+<Callout type="warning">
+  Activez l'évolution des skills uniquement dans des environnements où vous faites
+  confiance aux sorties de l'agent. Les skills nouvellement créées sont scannées
+  pour la sécurité avant d'être chargées, mais la fonctionnalité donne à l'agent
+  un accès en écriture au répertoire de skills.
+</Callout>
+
+## Écrire une skill personnalisée
+
+Pour créer une skill personnalisée :
+
+1. Créez un nouveau répertoire sous `skills/custom/your-skill-name/`
+2. Ajoutez un fichier `SKILL.md` qui définit les métadonnées et instructions de la skill
+3. La skill sera découverte automatiquement au prochain appel à `load_skills()`
+
+Le format `SKILL.md` suit la même structure que les skills intégrées. Utilisez l'une des skills publiques existantes comme référence pour le format attendu.
+
+<Cards num={2}>
+  <Cards.Card title="Sandbox" href="/docs/harness/sandbox" />
+  <Cards.Card title="Outils" href="/docs/harness/tools" />
+</Cards>

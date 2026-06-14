@@ -1,0 +1,67 @@
+---
+title: Première conversation
+description: Ce tutoriel vous guide à travers votre première conversation complète avec un agent dans DeerFlow — du lancement de l'application jusqu'à l'obtention d'un travail concret.
+---
+
+import { Callout, Steps } from "nextra/components";
+
+# Première conversation
+
+Ce tutoriel vous guide à travers votre première conversation complète avec un agent dans DeerFlow — du lancement de l'application jusqu'à l'obtention d'un travail concret.
+
+## Prérequis
+
+- L'application DeerFlow est en cours d'exécution (voir [Démarrage rapide](/docs/application/quick-start))
+- Au moins un modèle est configuré dans `config.yaml`
+
+## Étapes
+
+<Steps>
+
+### Ouvrir le workspace
+
+Ouvrez [http://localhost:2026](http://localhost:2026) dans votre navigateur. Vous verrez le workspace de conversation.
+
+### Envoyer votre premier message
+
+Tapez une question dans la zone de saisie, par exemple :
+
+```
+Research the top 3 most popular open-source LLM frameworks in 2024 and compare their strengths and weaknesses.
+```
+
+Appuyez sur Entrée pour envoyer.
+
+### Observer l'agent au travail
+
+Vous verrez l'agent commencer à travailler :
+
+- Développez les **étapes de réflexion** pour voir quels outils il appelle
+- Observez les résultats de recherche arriver en streaming
+- Attendez que le rapport final soit généré
+
+### Interagir avec le résultat
+
+Une fois le rapport généré, vous pouvez :
+
+- Demander plus de détails sur une section spécifique
+- Demander à exporter le rapport sous forme de fichier (l'agent utilisera l'outil `present_files`)
+- Demander à créer un graphique basé sur les résultats de la recherche
+
+</Steps>
+
+## Ce qui vient de se passer
+
+L'agent a utilisé le DeerFlow Harness pour :
+
+1. Recevoir votre message et l'ajouter à l'état du thread
+2. Exécuter la chaîne de middleware (injection de mémoire, génération du titre)
+3. Appeler le LLM, qui a décidé d'effectuer une recherche web
+4. Exécuter les appels d'outils de recherche web
+5. Synthétiser les résultats en une réponse structurée
+6. Mettre à jour l'état du thread avec les artefacts produits
+
+## Prochaines étapes
+
+- [Utiliser les outils et les skills](/docs/tutorials/use-tools-and-skills)
+- [Utilisation du workspace](/docs/application/workspace-usage)

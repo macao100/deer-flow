@@ -1,0 +1,94 @@
+---
+title: Utilisation du workspace
+description: Le workspace DeerFlow App est une interface navigateur pour avoir des conversations multi-tours avec l'agent, suivre la progression des tâches, visualiser les artefacts et gérer les fichiers.
+---
+
+import { Callout, Cards } from "nextra/components";
+
+# Utilisation du workspace
+
+Le workspace DeerFlow App est une interface navigateur pour avoir des conversations multi-tours avec l'agent, suivre la progression des tâches, visualiser les artefacts et gérer les fichiers.
+
+## Démarrer une conversation
+
+Ouvrez l'application sur `http://localhost:2026` (ou votre URL de déploiement). Le workspace est divisé en :
+
+- **Barre latérale** (gauche) : liste des threads, bouton nouveau thread et navigation vers les agents et paramètres.
+- **Zone de conversation** (centre) : l'historique de messages du thread actif.
+- **Barre de saisie** (bas) : saisie de texte, sélecteur de skill, sélecteur de modèle et contrôles de pièces jointes.
+
+Pour démarrer un nouveau thread, cliquez sur **Nouveau thread** dans la barre latérale ou utilisez le raccourci clavier. Chaque thread est indépendant — il possède son propre historique de conversation, ses artefacts et son état.
+
+## Sélectionner un modèle
+
+Utilisez le sélecteur de modèle dans la barre de saisie pour choisir quel modèle configuré utiliser pour la requête en cours. Les modèles listés ici correspondent aux entrées `models:` de votre `config.yaml`.
+
+Le modèle sélectionné s'applique uniquement au message suivant. Vous pouvez changer de modèle entre les messages dans le même thread.
+
+Si un modèle supporte le **mode de réflexion**, un bouton bascule apparaît à côté du sélecteur de modèle. Lorsque la réflexion est activée, les étapes de raisonnement interne de l'agent sont affichées en ligne dans la réponse.
+
+## Sélectionner une skill
+
+Cliquez sur le bouton **Skills** dans la barre de saisie pour ouvrir le sélecteur de skills. Les skills activées sont listées ici. Sélectionner une skill indique à l'agent d'appliquer le workflow et les instructions de cette skill pour le message en cours.
+
+<Callout type="tip">
+  Les skills sont particulièrement utiles lorsque vous souhaitez que l'agent suive
+  une approche spécifique, comme la méthodologie de recherche approfondie ou
+  l'analyse de données structurée. Pour les questions générales, vous n'avez
+  généralement pas besoin de sélectionner une skill.
+</Callout>
+
+## Mode Plan
+
+Activez le **Mode Plan** dans la barre de saisie pour activer le middleware de liste de tâches. En mode plan, l'agent crée et maintient une liste de tâches visible au fil de son travail sur un objectif complexe en plusieurs étapes. Chaque tâche affiche son statut (`en attente`, `en cours`, `terminé`) en temps réel.
+
+Le mode plan est le plus utile pour les tâches complexes comportant 3 étapes distinctes ou plus.
+
+## Uploader des fichiers
+
+Cliquez sur l'icône de pièce jointe dans la barre de saisie pour uploader des fichiers. Les types de fichiers pris en charge incluent les PDFs, fichiers texte, tableurs et images.
+
+Les fichiers uploadés sont stockés dans le répertoire de travail du thread (`/mnt/user-data/uploads/`) et sont accessibles à l'agent pendant la conversation. Les PDFs sont automatiquement convertis en Markdown pour une meilleure compréhension par le modèle (le convertisseur peut être configuré via `uploads.pdf_converter` dans `config.yaml`).
+
+## Visualiser les artefacts
+
+Lorsque l'agent produit des fichiers de sortie (rapports, graphiques, code, etc.), ils apparaissent dans le panneau **Artefacts**. Chaque artefact affiche un aperçu (pour les types pris en charge) et un lien de téléchargement.
+
+Les artefacts sont suivis dans l'état du thread et persistent lors des rechargements de page.
+
+## Comprendre le flux de messages
+
+Chaque réponse de l'agent dans la conversation peut contenir :
+
+- **Texte** : la réponse directe de l'agent.
+- **Réflexion** (si le mode de réflexion est activé) : le raisonnement interne du modèle, affiché dans un bloc réductible.
+- **Appels d'outils** : un enregistrement des outils appelés et avec quels arguments.
+- **Résultats d'outils** : la sortie retournée par chaque outil.
+- **Sortie de sous-agent** : si l'agent a délégué une tâche, la progression du sous-agent apparaît en ligne.
+
+Les appels d'outils et les étapes de réflexion sont réduits par défaut. Cliquez pour les développer.
+
+## Comprendre l'utilisation des tokens
+
+Si l'affichage de l'utilisation des tokens est activé, DeerFlow affiche un total global au niveau de la conversation dans l'en-tête et des résumés optionnels par tour ou en mode debug dans la liste des messages.
+
+- **Total de l'en-tête** : le total au niveau du thread persisté dans le backend. Pendant que l'exécution en cours est toujours en streaming, l'en-tête peut également inclure l'utilisation en vol visible pour cette réponse non terminée.
+- **Utilisation par tour / debug** : utilisation dérivée des messages de l'assistant actuellement visibles dans la vue de conversation.
+
+Cela signifie que le total de l'en-tête et les totaux par tour visibles **n'ont pas besoin** de correspondre exactement. L'en-tête est un registre de thread ; la vue par tour est un rendu des messages actuellement visibles.
+
+Ces totaux peuvent également différer de la page de facturation de votre fournisseur. Les raisons courantes incluent les tentatives répétées, les requêtes échouées, les tokens d'entrée en cache, les tokens de raisonnement, les règles de facturation spécifiques au fournisseur et les appels internes qui n'apparaissent pas comme des messages de chat normaux.
+
+## Changer d'agent
+
+Si vous avez créé des agents personnalisés, utilisez le sélecteur **Agent** dans la barre de saisie pour passer à un autre agent. L'agent sélectionné persiste pendant toute la durée du thread.
+
+Les agents personnalisés peuvent avoir différents modèles, skills, ensembles d'outils et prompts système. Consultez [Agents et threads](/docs/application/agents-and-threads) pour savoir comment créer et gérer des agents personnalisés.
+
+<Cards num={2}>
+  <Cards.Card
+    title="Agents et threads"
+    href="/docs/application/agents-and-threads"
+  />
+  <Cards.Card title="Configuration" href="/docs/application/configuration" />
+</Cards>

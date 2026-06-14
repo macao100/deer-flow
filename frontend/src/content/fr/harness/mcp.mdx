@@ -1,0 +1,123 @@
+---
+title: Intégration MCP
+description: Le **Model Context Protocol (MCP)** est un standard ouvert pour connecter les modèles de langage à des outils et sources de données externes. L'intégration MCP de DeerFlow vous permet d'étendre l'agent avec n'importe quel serveur d'outils qui implémente le protocole MCP — sans modifier le harness lui-même.
+---
+
+import { Callout, Cards, Steps } from "nextra/components";
+
+# Intégration MCP
+
+<Callout type="info" emoji="🔌">
+  Le Model Context Protocol (MCP) permet à DeerFlow de se connecter à n'importe
+  quel serveur d'outils externe. Une fois connectés, les outils MCP sont
+  disponibles pour le Lead Agent exactement comme les outils intégrés.
+</Callout>
+
+Le **Model Context Protocol (MCP)** est un standard ouvert pour connecter les modèles de langage à des outils et sources de données externes. L'intégration MCP de DeerFlow vous permet d'étendre l'agent avec n'importe quel serveur d'outils qui implémente le protocole MCP — sans modifier le harness lui-même.
+
+## Configuration
+
+Les serveurs MCP sont configurés dans `extensions_config.json`, un fichier séparé de `config.yaml`. Cette séparation permet aux configurations MCP et de skills d'être gérées indépendamment et mises à jour à l'exécution via l'API Gateway.
+
+L'emplacement par défaut est la racine du projet (même répertoire que `config.yaml`). Le chemin est déterminé par `ExtensionsConfig.resolve_config_path()`.
+
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "command": "npx",
+      "args": ["-y", "@my-org/my-mcp-server"],
+      "enabled": true
+    },
+    "sqlite": {
+      "command": "uvx",
+      "args": ["mcp-server-sqlite", "--db-path", "/path/to/db.sqlite"],
+      "enabled": false
+    }
+  }
+}
+```
+
+<Callout type="warning">
+  N'ajoutez pas de serveur MCP filesystem pour les fichiers de workspace DeerFlow.
+  DeerFlow fournit déjà des outils de fichiers intégrés pour l'accès au workspace
+  dans le scope du thread, et des outils de fichiers qui se chevauchent avec des
+  sémantiques de chemin différentes peuvent rendre la sélection d'outils LLM et
+  le comportement d'accès aux fichiers instables. DeerFlow n'adapte pas
+  actuellement le mode MCP Roots pour les serveurs filesystem : il ne publie pas
+  de roots MCP par thread ni ne mappe les chemins sandbox comme{" "}
+  <code>/mnt/user-data/...</code> vers des chemins acceptés par{" "}
+  <code>@modelcontextprotocol/server-filesystem</code>.
+</Callout>
+
+Chaque entrée de serveur supporte :
+
+- `command` : l'exécutable à lancer (par ex. `npx`, `uvx`, `python`)
+- `args` : arguments de commande comme tableau
+- `enabled` : si le serveur est actif (peut être basculé sans supprimer l'entrée)
+- `env` : variables d'environnement optionnelles injectées dans le processus serveur
+
+## Comment les outils sont chargés
+
+<Steps>
+
+### Initialisation au démarrage
+
+Quand le serveur DeerFlow démarre, `initialize_mcp_tools()` est appelé. Cela se connecte à tous les serveurs MCP activés, récupère leurs schémas d'outils et met en cache les résultats.
+
+### Repli sur l'initialisation paresseuse
+
+Si le serveur démarre avant que les outils MCP soient initialisés (par ex. dans LangGraph Studio), `get_cached_mcp_tools()` effectue une initialisation paresseuse au premier appel d'outil.
+
+### Invalidation du cache
+
+Le cache des outils MCP suit le temps de modification (`mtime`) de `extensions_config.json`. Quand le fichier change — par exemple, quand un serveur est activé ou désactivé via l'API Gateway — le cache est marqué comme périmé et les outils sont rechargés à la prochaine requête.
+
+Cela signifie que les changements de serveur MCP prennent effet sans redémarrer le serveur DeerFlow.
+
+### Disponibilité des outils
+
+Une fois chargés, les outils MCP apparaissent dans la liste d'outils du Lead Agent à côté des outils intégrés et communautaires. L'agent les sélectionne et les appelle en utilisant le même mécanisme que tout autre outil.
+
+</Steps>
+
+## Intégration avec tool search
+
+Quand de nombreux serveurs MCP exposent un grand nombre d'outils, les charger tous dans le contexte de l'agent en une fois peut augmenter l'utilisation des tokens et réduire la précision de la sélection d'outils.
+
+Activez **tool search** pour charger les outils MCP à la demande plutôt :
+
+```yaml
+# config.yaml
+tool_search:
+  enabled: true
+```
+
+Avec tool search activé, les outils MCP sont listés par nom dans le prompt système mais ne sont pas inclus dans le schéma d'outil complet. L'agent les découvre en utilisant l'outil intégré `tool_search` et ne charge que ceux dont il a besoin pour une tâche donnée.
+
+## Support OAuth
+
+Certains serveurs MCP nécessitent une authentification OAuth. `mcp/oauth.py` de DeerFlow gère le flux OAuth pour les serveurs qui déclarent des exigences OAuth dans leurs en-têtes de capacité.
+
+Quand un serveur MCP protégé par OAuth est connecté, DeerFlow va :
+
+1. Détecter l'exigence OAuth depuis les en-têtes de capacité du serveur
+2. Construire les en-têtes d'autorisation appropriés en utilisant `get_initial_oauth_headers()`
+3. Envelopper les appels d'outils avec un intercepteur OAuth via `build_oauth_tool_interceptor()`
+
+Le flux OAuth est transparent pour le Lead Agent — il appelle simplement l'outil, et DeerFlow gère l'authentification.
+
+## Gérer les serveurs MCP
+
+Les serveurs MCP peuvent être gérés de plusieurs façons :
+
+- **Via l'interface de l'application DeerFlow** : le panneau d'extensions affiche les serveurs MCP connectés et vous permet de les activer/désactiver.
+- **Via l'API Gateway** : `POST /api/extensions/mcp/{name}/enable` et `/disable`.
+- **En éditant `extensions_config.json` directement** : utile pour la configuration scriptée ou programmatique.
+
+Les changements sont automatiquement pris en compte grâce à l'invalidation du cache basée sur le mtime du fichier.
+
+<Cards num={2}>
+  <Cards.Card title="Outils" href="/docs/harness/tools" />
+  <Cards.Card title="Configuration" href="/docs/harness/configuration" />
+</Cards>

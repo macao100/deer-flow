@@ -21,7 +21,7 @@ const config = {
       ? "standalone"
       : undefined,
   i18n: {
-    locales: ["en", "zh"],
+    locales: ["en", "fr", "zh"],
     defaultLocale: "en",
   },
   devIndicators: false,

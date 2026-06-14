@@ -1,0 +1,104 @@
+---
+title: Créer votre premier Harness
+description: Ce tutoriel vous montre comment utiliser le DeerFlow Harness de manière programmatique — en important et utilisant DeerFlow directement dans votre code Python plutôt qu'à travers l'interface web.
+---
+
+import { Callout, Steps } from "nextra/components";
+
+# Créer votre premier Harness
+
+Ce tutoriel vous montre comment utiliser le DeerFlow Harness de manière programmatique — en important et utilisant DeerFlow directement dans votre code Python plutôt qu'à travers l'interface web.
+
+## Prérequis
+
+- Python 3.12+
+- `uv` installé
+- Dépôt DeerFlow cloné
+
+## Installation
+
+```bash
+cd deer-flow/backend
+uv sync
+```
+
+## Créer la configuration
+
+Créez un `config.yaml` minimal :
+
+```yaml
+config_version: 6
+
+models:
+  - name: gpt-4o
+    use: langchain_openai:ChatOpenAI
+    model: gpt-4o
+    api_key: $OPENAI_API_KEY
+
+sandbox:
+  use: deerflow.sandbox.local:LocalSandboxProvider
+
+tools:
+  - use: deerflow.community.ddg_search.tools:web_search_tool
+  - use: deerflow.sandbox.tools:read_file_tool
+  - use: deerflow.sandbox.tools:write_file_tool
+```
+
+## Écrire le code
+
+<Steps>
+
+### Créer un fichier Python
+
+Créez `my_agent.py` dans le répertoire `backend/` :
+
+```python
+import asyncio
+import os
+from deerflow.client import DeerFlowClient
+from deerflow.config import load_config
+
+os.environ["OPENAI_API_KEY"] = "sk-..."
+
+# Charger config.yaml
+load_config()
+
+client = DeerFlowClient()
+
+async def main():
+    async for event in client.astream(
+        thread_id="my-first-thread",
+        message="Write a Python fibonacci function with a docstring",
+        config={
+            "configurable": {
+                "model_name": "gpt-4o",
+            }
+        },
+    ):
+        print(event)
+
+asyncio.run(main())
+```
+
+### L'exécuter
+
+```bash
+cd backend
+uv run python my_agent.py
+```
+
+</Steps>
+
+## À quoi ressemblent les événements
+
+Le stream produit des événements de la forme :
+
+```python
+{"type": "messages", "data": {"content": "def fibonacci..."}}
+{"type": "thread_state", "data": {"title": "Python Fibonacci Function"}}
+```
+
+## Prochaines étapes
+
+- [Utiliser les outils et les skills](/docs/tutorials/use-tools-and-skills)
+- [Démarrage rapide du Harness](/docs/harness/quick-start)

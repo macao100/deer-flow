@@ -1,0 +1,119 @@
+---
+title: Concepts clés
+description: Avant d'aller plus loin dans DeerFlow, il est utile d'ancrer quelques concepts qui apparaissent dans tout le système. Ces concepts expliquent ce que DeerFlow cherche à optimiser et pourquoi son architecture est construite de cette façon.
+---
+
+import { Callout, Cards } from "nextra/components";
+
+# Concepts clés
+
+<Callout type="important" emoji="🧠">
+  DeerFlow prend tout son sens si vous le concevez comme un runtime pour des
+  agents à long horizon, et non comme une simple interface de chat ou un graphe
+  de workflow.
+</Callout>
+
+Avant d'aller plus loin dans DeerFlow, il est utile d'ancrer quelques concepts qui apparaissent dans tout le système. Ces concepts expliquent ce que DeerFlow cherche à optimiser et pourquoi son architecture est construite de cette façon.
+
+## Harness
+
+Dans DeerFlow, un **harness** est la couche d'exécution qui donne à un agent l'environnement dont il a besoin pour accomplir un travail réel.
+
+Un framework vous offre généralement des abstractions et des briques de construction. Un harness va plus loin : il regroupe un ensemble de capacités d'exécution opinionées afin que l'agent puisse planifier, agir, utiliser des outils, gérer des fichiers et opérer sur des tâches longues sans que vous ayez à reconstruire la même infrastructure à chaque fois.
+
+En pratique, le harness DeerFlow inclut des éléments tels que :
+
+- l'accès aux outils,
+- le chargement de skills,
+- l'exécution en sandbox,
+- la mémoire,
+- l'orchestration de sous-agents, et
+- la gestion du contexte.
+
+C'est pourquoi DeerFlow n'est pas seulement un wrapper de modèle ni seulement un graphe de workflow. C'est un environnement d'exécution pour les agents.
+
+## Agent à long horizon
+
+Un **agent à long horizon** est un agent qui reste utile sur une chaîne d'actions plutôt que de produire une seule réponse.
+
+Ce type d'agent peut avoir besoin de :
+
+1. élaborer un plan,
+2. décider de l'étape suivante de manière répétée,
+3. appeler des outils de nombreuses fois,
+4. inspecter et modifier des fichiers,
+5. stocker des résultats intermédiaires, et
+6. retourner un artefact utilisable à la fin.
+
+Ce qui compte ici, ce n'est pas seulement la durée. C'est la coordination soutenue sur plusieurs étapes.
+
+DeerFlow est conçu pour ce type de travail. Son architecture part du principe que les tâches utiles nécessitent souvent plus d'un appel d'outil et plus d'un passage de raisonnement.
+
+## Skill
+
+Une **skill** est un package de capacités orienté tâches qui apprend à l'agent comment effectuer une certaine classe de travail.
+
+Une skill n'est pas qu'une étiquette. Elle comprend généralement des instructions structurées, des workflows, des bonnes pratiques et des ressources de support qui peuvent être chargées lorsque c'est pertinent. Cela maintient l'agent de base généraliste tout en permettant l'ajout de comportements spécialisés uniquement lorsque nécessaire.
+
+Dans DeerFlow, la recherche approfondie est une skill. L'analyse de données, la génération de contenu, les workflows orientés design et d'autres familles de tâches peuvent également être représentés comme des skills.
+
+C'est une partie majeure du modèle mental DeerFlow : le runtime reste général, tandis que les skills apportent la spécialisation.
+
+## Sandbox
+
+Un **sandbox** est l'environnement d'exécution isolé dans lequel l'agent effectue son travail sur les fichiers et les commandes.
+
+Plutôt que de traiter l'agent comme un simple générateur de texte, DeerFlow lui donne un espace de travail où il peut lire des fichiers, écrire des sorties, exécuter des commandes et produire des artefacts. Cela rend le système beaucoup plus utile pour le codage, l'analyse et les workflows en plusieurs étapes.
+
+L'isolation est importante car l'exécution doit être contrôlée et reproductible. Le sandbox est ce qui permet à DeerFlow de prendre en charge l'action, pas seulement la conversation.
+
+## Sous-agent
+
+Un **sous-agent** est un worker focalisé qui gère une sous-tâche déléguée.
+
+Quand une tâche est trop large pour un seul fil de raisonnement, DeerFlow peut la diviser en unités plus petites et les exécuter séparément. Les sous-agents facilitent l'exploration parallèle, l'exécution délimitée et la réduction de la surcharge sur l'agent principal.
+
+L'idée clé est l'isolation. Un sous-agent n'a pas besoin de l'historique complet de la conversation ni de chaque détail du contexte parent. Il a uniquement besoin des informations nécessaires pour bien résoudre la partie de travail qui lui est assignée.
+
+## Ingénierie du contexte
+
+**L'ingénierie du contexte** est la pratique consistant à contrôler ce que l'agent voit, mémorise et ignore afin qu'il reste efficace dans le temps.
+
+Les tâches longues exercent une pression sur la fenêtre de contexte. Si tout est conservé en ligne indéfiniment, l'agent devient plus lent, plus bruité et moins fiable. DeerFlow y répond avec des techniques telles que la résumisation, le contexte délimité pour les sous-agents et l'utilisation du système de fichiers comme mémoire de travail externe.
+
+C'est l'une des idées les plus importantes de DeerFlow. Un bon comportement d'agent ne repose pas seulement sur un modèle plus puissant. Il repose aussi sur le fait de donner au modèle le bon ensemble de travail au bon moment.
+
+## Mémoire
+
+La **mémoire** est le mécanisme de DeerFlow pour conserver des informations utiles d'une session à l'autre.
+
+Plutôt que de repartir de zéro à chaque fois, le système peut retenir des informations telles que les préférences utilisateur, le contexte de projet récurrent et les faits durables qui améliorent les interactions futures. La mémoire rend l'agent plus adaptatif et moins répétitif.
+
+Dans DeerFlow, la mémoire fait partie du runtime, et non une surcouche ajoutée après coup.
+
+## Artefact
+
+Un **artefact** est la sortie concrète du travail de l'agent.
+
+Cette sortie peut être un rapport, un fichier généré, une modification de code, un graphique, un asset de design ou tout autre livrable qui peut être examiné et utilisé en dehors du chat lui-même.
+
+Cela est important car DeerFlow est conçu autour de l'accomplissement de tâches, pas seulement de la génération de réponses. Le système cherche à produire quelque chose que vous pouvez inspecter, affiner ou transmettre.
+
+## Assembler les concepts
+
+Ces concepts s'assemblent en un seul modèle :
+
+- Le **harness** fournit le runtime.
+- Les **skills** fournissent la spécialisation.
+- Le **sandbox** fournit un environnement d'exécution.
+- Les **sous-agents** fournissent la décomposition et le parallélisme.
+- **L'ingénierie du contexte** maintient les tâches longues gérables.
+- La **mémoire** préserve une continuité utile.
+- Les **artefacts** sont les sorties qui rendent le travail tangible.
+
+Si vous gardez ce modèle en tête, le reste de la documentation DeerFlow sera beaucoup plus facile à parcourir.
+
+<Cards num={2}>
+  <Cards.Card title="Pourquoi DeerFlow" href="/docs/introduction/why-deerflow" />
+  <Cards.Card title="Harness vs App" href="/docs/introduction/harness-vs-app" />
+</Cards>

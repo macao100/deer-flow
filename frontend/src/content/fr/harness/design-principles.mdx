@@ -1,0 +1,126 @@
+---
+title: Principes de conception
+description: Comprendre les principes de conception de DeerFlow Harness vous aide à l'utiliser efficacement, à l'étendre en toute confiance et à raisonner sur le comportement de vos agents en production.
+---
+
+import { Callout, Cards } from "nextra/components";
+
+# Principes de conception
+
+<Callout type="info" emoji="🏗️">
+  DeerFlow est construit autour d'une idée centrale : le comportement de l'agent
+  doit être composé à partir de petites pièces observables et remplaçables — pas
+  codé en dur dans un graphe de workflow fixe.
+</Callout>
+
+Comprendre les principes de conception de DeerFlow Harness vous aide à l'utiliser efficacement, à l'étendre en toute confiance et à raisonner sur le comportement de vos agents en production.
+
+## Pourquoi un harness, pas un framework
+
+Un framework vous donne des abstractions et des blocs de construction. Vous assemblez les pièces et écrivez le code de liaison qui les connecte.
+
+Un **harness** va plus loin. Il empaquète un runtime opinionné prêt à l'emploi pour que les agents puissent faire un travail réel sans que vous ayez à reconstruire la même infrastructure à chaque fois.
+
+DeerFlow est un harness parce qu'il regroupe :
+
+- un lead agent avec le routage d'outils,
+- une chaîne de middleware qui enveloppe chaque tour du LLM,
+- une exécution en sandbox pour les fichiers et les commandes,
+- des skills qui chargent des capacités spécialisées à la demande,
+- des sous-agents pour le travail délégué en parallèle,
+- une mémoire pour la continuité entre sessions, et
+- un système de configuration qui contrôle tout cela.
+
+Vous n'avez pas besoin de concevoir la couche d'orchestration de zéro. Le harness est la couche d'orchestration.
+
+## Les tâches à long horizon sont le cas principal
+
+DeerFlow est conçu pour les tâches qui nécessitent plus qu'un simple échange prompt-réponse. Un agent utile à long horizon doit :
+
+1. établir un plan,
+2. appeler des outils en séquence,
+3. inspecter et modifier des fichiers,
+4. se remettre d'un échec,
+5. déléguer du travail à des sous-agents quand la tâche est trop large, et
+6. retourner un artefact concret à la fin.
+
+Chaque décision architecturale dans DeerFlow est évaluée par rapport à ce cas d'usage. Les échanges courts et sans état sont simples. Les workflows longs et multi-étapes sous pression réelle sont la cible.
+
+## Chaîne de middleware plutôt qu'héritage
+
+DeerFlow ne vous demande pas de sous-classer un agent ou de surcharger des méthodes pour changer son comportement. Au lieu de cela, il utilise une **chaîne de middleware** qui enveloppe chaque tour du LLM.
+
+Chaque middleware est un petit plugin ciblé qui peut inspecter ou modifier l'état de l'agent avant et après l'appel au modèle. Le comportement du lead agent est entièrement déterminé par les middlewares actifs.
+
+Cette conception présente plusieurs avantages :
+
+- Les comportements individuels (mémoire, résumé, clarification, détection de boucle) sont isolés et testables indépendamment.
+- La chaîne peut être étendue sans toucher à la logique centrale de l'agent.
+- L'effet de chaque middleware est visible et auditable car il ne touche que l'état qu'il déclare.
+
+Consultez la page [Middlewares](/docs/harness/middlewares) pour la liste complète et la configuration.
+
+## Les skills fournissent la spécialisation sans contamination
+
+Une **skill** est un package de capacité orienté tâche. Il contient des instructions, des workflows, des bonnes pratiques, et tous les outils ou ressources qui rendent l'agent efficace pour une classe spécifique de travail.
+
+La décision de conception clé est que les skills sont chargées **à la demande**. L'agent de base reste général. Quand une tâche nécessite une recherche approfondie, la skill de recherche est chargée. Quand une tâche nécessite une analyse de données, la skill d'analyse est chargée.
+
+Cela importe parce que cela maintient le contexte de l'agent de base propre. Un prompt spécialisé pour la rédaction de papiers académiques ne pollue pas une session axée sur le code. Les skills injectent leur contenu exactement quand c'est pertinent et pas plus.
+
+Les skills rendent aussi le système extensible. Ajouter une nouvelle capacité à DeerFlow signifie écrire un nouveau pack de skill, pas modifier le cœur de l'agent.
+
+## Le sandbox est l'environnement d'exécution
+
+DeerFlow donne aux agents un **sandbox** : un espace de travail isolé où ils peuvent lire des fichiers, écrire des sorties, exécuter des commandes et produire des artefacts.
+
+Cela transforme l'agent d'un générateur de texte en un système capable de faire un vrai travail. Au lieu de seulement décrire quel code écrire, l'agent peut l'écrire, l'exécuter et vérifier le résultat.
+
+L'isolation est importante parce que l'exécution doit être reproductible et contrôlable. Le sandbox est la raison pour laquelle DeerFlow peut supporter de vraies actions plutôt que seulement de la conversation.
+
+Deux modes sont disponibles :
+
+- **LocalSandbox** : les commandes s'exécutent directement sur l'hôte. Adapté aux workflows locaux de confiance mono-utilisateur.
+- **Sandbox basé sur des conteneurs** : les commandes s'exécutent dans un conteneur isolé (Docker ou Apple Container). Adapté aux environnements multi-utilisateurs et aux déploiements en production.
+
+## L'ingénierie du contexte maintient les tâches longues gérables
+
+La pression du contexte est le défi principal pour les agents à long horizon. Si tout s'accumule indéfiniment dans la fenêtre de contexte, l'agent devient plus lent, plus bruyant et moins fiable.
+
+DeerFlow répond à cela par l'**ingénierie du contexte** — un contrôle délibéré de ce que l'agent voit, mémorise et ignore à chaque étape :
+
+- **Résumé** : quand la conversation devient trop longue, les tours plus anciens sont résumés et remplacés. L'agent conserve le sens sans le volume.
+- **Contexte de sous-agent limité** : quand du travail est délégué à un sous-agent, ce sous-agent ne reçoit que les informations nécessaires pour sa partie de la tâche, pas l'intégralité de l'historique parent.
+- **Mémoire de travail externe** : les fichiers et artefacts produits pendant une tâche vivent sur le disque, pas dans la fenêtre de contexte. L'agent les référence quand nécessaire.
+- **Injection de mémoire** : les faits inter-sessions sont injectés dans le prompt système avec un budget de tokens contrôlé.
+
+C'est l'une des idées les plus importantes dans DeerFlow. Un bon comportement d'agent ne concerne pas seulement un modèle plus puissant. Il s'agit aussi de donner au modèle le bon ensemble de travail au bon moment.
+
+## La configuration pilote le comportement
+
+Tous les comportements significatifs dans DeerFlow sont contrôlés via `config.yaml`. Le système est conçu pour que les opérateurs puissent changer le comportement de l'agent — quels modèles utiliser, si le résumé est actif, comment les sous-agents sont limités, quels outils sont disponibles — sans toucher au code.
+
+Ce principe de conception a trois implications :
+
+1. **Reproductibilité** : un fichier de config est une description complète du comportement de l'agent à un instant donné.
+2. **Déployabilité** : le même code s'exécute différemment dans différents environnements parce que la config est différente.
+3. **Auditabilité** : ce que l'agent peut et ne peut pas faire est visible en un seul endroit.
+
+L'interpolation de variables d'environnement (`api_key: $OPENAI_API_KEY`) garde les secrets hors des fichiers de config commités tout en préservant la même structure.
+
+## Résumé
+
+| Principe                         | Ce que cela signifie en pratique                                     |
+| -------------------------------- | --------------------------------------------------------------------- |
+| Harness, pas framework           | Runtime prêt à l'emploi avec toute l'infrastructure déjà câblée      |
+| Long horizon d'abord             | Architecture pensée pour les tâches multi-étapes, multi-outils, multi-tours |
+| Middleware plutôt qu'héritage    | Le comportement est composé de petits plugins isolés                  |
+| Skills pour la spécialisation    | Capacité de domaine injectée à la demande, maintenant la base propre  |
+| Sandbox pour l'exécution         | Espace de travail isolé pour un vrai travail sur fichiers et commandes |
+| Ingénierie du contexte           | Gestion active de ce que l'agent voit pour rester efficace            |
+| Piloté par config                | Tous les comportements clés sont contrôlés via `config.yaml`          |
+
+<Cards num={2}>
+  <Cards.Card title="Lead Agent" href="/docs/harness/lead-agent" />
+  <Cards.Card title="Middlewares" href="/docs/harness/middlewares" />
+</Cards>

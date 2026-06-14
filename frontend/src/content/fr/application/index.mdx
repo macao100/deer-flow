@@ -1,0 +1,67 @@
+---
+title: DeerFlow App
+description: DeerFlow App est l'implémentation de référence d'une expérience DeerFlow en production. Elle assemble le runtime Harness, un workspace de conversation web, une API gateway et un reverse proxy en un système déployable unique.
+---
+
+import { Callout, Cards } from "nextra/components";
+
+# DeerFlow App
+
+<Callout type="info" emoji="🚀">
+  DeerFlow App est une application Super Agent complète construite sur DeerFlow
+  Harness. Elle regroupe les capacités du runtime dans un produit prêt à déployer
+  avec une interface web, une API gateway et des outils opérationnels.
+</Callout>
+
+DeerFlow App est l'implémentation de référence d'une expérience DeerFlow en production. Elle assemble le runtime Harness, un workspace de conversation web, une API gateway et un reverse proxy en un système déployable unique.
+
+## Ce que l'App fournit
+
+| Capacité                   | Description                                                                                                    |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| **Workspace web**          | Interface de conversation dans le navigateur avec support des threads, artefacts, uploads et sélection de skill |
+| **Agents personnalisés**   | Créer et gérer des agents nommés avec différents modèles, skills et ensembles d'outils                         |
+| **Gestion des threads**    | Threads de conversation persistants avec checkpointing et historique                                           |
+| **Réponses en streaming**  | Streaming de tokens en temps réel avec étapes de réflexion et visibilité des appels d'outils                  |
+| **Visionneuse d'artefacts**| Prévisualisation et téléchargement des fichiers et sorties produits par l'agent                                |
+| **Interface Extensions**   | Activer/désactiver les serveurs MCP et les skills sans modifier les fichiers de config                         |
+| **API Gateway**            | API REST basée sur FastAPI avec le runtime d'agent embarqué compatible LangGraph                               |
+
+## Architecture
+
+DeerFlow App s'exécute derrière un unique reverse proxy nginx :
+
+```
+                ┌──────────────────┐
+     Navigateur → │  nginx :2026      │
+                └──────────────────┘
+                  │          │
+         ┌────────┘          └────────┐
+         ▼                            ▼
+┌──────────────────┐       ┌──────────────────────┐
+│  Frontend :3000  │       │  Gateway API :8001    │
+│  (Next.js)       │       │  (FastAPI)            │
+└──────────────────┘       └──────────────────────┘
+```
+
+- **nginx** : route les requêtes — `/api/*` et `/api/langgraph/*` vers Gateway, tout le reste vers le frontend.
+- **Frontend** (Next.js + React) : l'interface navigateur. Communique avec Gateway.
+- **Gateway** (FastAPI) : gère les opérations API et le runtime embarqué compatible LangGraph pour l'état des threads, l'exécution des agents et le streaming.
+
+## Stack technologique
+
+| Couche              | Technologie                                                           |
+| ------------------- | --------------------------------------------------------------------- |
+| Frontend            | Next.js 16, React 19, TypeScript, pnpm                                |
+| Gateway             | FastAPI, Python 3.12, uvicorn                                         |
+| Runtime d'agent     | LangGraph, LangChain, DeerFlow Harness                                |
+| Reverse proxy       | nginx                                                                 |
+| Persistance d'état  | Runtime Gateway + checkpointer SQLite/PostgreSQL optionnel            |
+
+<Cards num={2}>
+  <Cards.Card title="Démarrage rapide" href="/docs/application/quick-start" />
+  <Cards.Card
+    title="Guide de déploiement"
+    href="/docs/application/deployment-guide"
+  />
+</Cards>

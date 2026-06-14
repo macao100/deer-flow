@@ -1,0 +1,138 @@
+---
+title: Sous-agents
+description: Quand une tâche est trop large pour un seul thread de raisonnement, ou quand des parties peuvent être faites en parallèle, le Lead Agent délègue du travail à des **sous-agents**. Un sous-agent est une invocation d'agent autonome qui reçoit une tâche spécifique, l'exécute et retourne le résultat.
+---
+
+import { Callout, Cards } from "nextra/components";
+
+# Sous-agents
+
+<Callout type="info" emoji="👥">
+  Les sous-agents sont des workers ciblés à qui le Lead Agent délègue des
+  sous-tâches. Ils s'exécutent avec un contexte isolé, maintenant la
+  conversation principale propre tout en gérant le travail parallèle ou
+  spécialisé.
+</Callout>
+
+Quand une tâche est trop large pour un seul thread de raisonnement, ou quand des parties peuvent être faites en parallèle, le Lead Agent délègue du travail à des **sous-agents**. Un sous-agent est une invocation d'agent autonome qui reçoit une tâche spécifique, l'exécute et retourne le résultat.
+
+## Pourquoi les sous-agents sont importants
+
+Les sous-agents résolvent deux problèmes clés dans les workflows à long horizon :
+
+1. **Isolation du contexte** : un sous-agent ne voit que les informations dont il a besoin pour sa partie de la tâche, pas l'intégralité de la conversation parente. Cela maintient le contexte de travail de chaque agent ciblé et gérable.
+2. **Parallélisme** : plusieurs sous-agents peuvent s'exécuter concurremment, permettant à des parties indépendantes d'une tâche (par ex. rechercher plusieurs sujets simultanément) d'être traitées en parallèle.
+
+## Sous-agents intégrés
+
+DeerFlow est livré avec deux sous-agents intégrés :
+
+### general-purpose
+
+Un agent de raisonnement et d'exécution polyvalent. Adapté à la délégation de sous-tâches complexes nécessitant un raisonnement multi-étapes, une recherche web, des opérations sur fichiers et la production d'artefacts.
+
+- **Timeout par défaut** : 900 secondes (15 minutes)
+- **Tours maximum par défaut** : 160
+
+### bash
+
+Un sous-agent spécialisé pour l'exécution de tâches en ligne de commande dans le sandbox. Adapté aux scripts, au traitement de données, à la transformation de fichiers et aux tâches de configuration d'environnement.
+
+- **Timeout par défaut** : 900 secondes (15 minutes)
+- **Tours maximum par défaut** : 80
+- **Disponibilité** : exposé uniquement quand l'outil `bash` du sandbox est disponible (soit `allow_host_bash: true` soit un sandbox conteneur est configuré)
+
+## Flux de délégation
+
+Le Lead Agent délègue du travail à un sous-agent en utilisant l'outil intégré `task` :
+
+```
+task(
+  agent="general-purpose",
+  task="Research the top 5 competitors of Acme Corp and summarize their pricing",
+  context="Focus on B2B SaaS pricing models"
+)
+```
+
+Le runtime alors :
+
+1. Récupère la configuration du sous-agent depuis le registre, en appliquant les surcharges `config.yaml`.
+2. Crée une nouvelle invocation d'agent avec le prompt et les outils propres au sous-agent.
+3. Exécute le sous-agent jusqu'à la fin (ou jusqu'au timeout / tours maximum).
+4. Retourne la sortie finale du sous-agent au Lead Agent comme résultat de l'outil.
+
+## Configuration
+
+Les timeouts et tours maximum des sous-agents sont contrôlés via la section `subagents:` dans `config.yaml` :
+
+```yaml
+subagents:
+  # Timeout par défaut en secondes pour tous les sous-agents (défaut : 900 = 15 minutes)
+  timeout_seconds: 900
+
+  # Optionnel : surcharger les tours maximum pour tous les sous-agents
+  # max_turns: 120
+
+  # Optionnel : surcharges par agent
+  agents:
+    general-purpose:
+      timeout_seconds: 1800 # 30 minutes pour les tâches complexes
+      max_turns: 160
+    bash:
+      timeout_seconds: 300 # 5 minutes pour les commandes rapides
+      max_turns: 80
+```
+
+Les surcharges par agent ont priorité sur les paramètres globaux `timeout_seconds` et `max_turns`.
+
+## Limites de concurrence
+
+Le `SubagentLimitMiddleware` contrôle combien de sous-agents le Lead Agent peut invoquer en parallèle dans un seul tour. Cela est contrôlé via la configuration par requête :
+
+- `subagent_enabled` : si la délégation aux sous-agents est active pour cette session
+- `max_concurrent_subagents` : appels de tâches parallèles maximum en un tour (défaut : 3)
+
+Si l'agent essaie d'appeler plus de sous-agents que la limite le permet, le middleware réduit les appels en excès.
+
+## Agents ACP (agents externes)
+
+En plus des sous-agents intégrés, DeerFlow supporte la délégation à des agents externes via l'**Agent Connect Protocol (ACP)**. ACP permet à DeerFlow d'invoquer des agents s'exécutant comme des processus séparés (y compris des outils CLI tiers encapsulés avec un adaptateur ACP).
+
+Configurez les agents ACP dans `config.yaml` :
+
+```yaml
+acp_agents:
+  claude_code:
+    command: npx
+    args: ["-y", "@zed-industries/claude-agent-acp"]
+    description: Claude Code for implementation, refactoring, and debugging
+    model: null
+    # auto_approve_permissions: false
+    # env:
+    #   ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
+
+  codex:
+    command: npx
+    args: ["-y", "@zed-industries/codex-acp"]
+    description: Codex CLI for repository tasks and code generation
+    model: null
+```
+
+Le Lead Agent invoque les agents ACP via l'outil intégré `invoke_acp_agent`.
+
+<Callout type="tip">
+  Les agents ACP s'exécutent comme des processus enfants gérés par DeerFlow. Ils
+  communiquent via le protocole filaire ACP. Les outils CLI standards (comme les
+  commandes `claude` ou `codex` simples) ne sont pas compatibles ACP par défaut
+  — utilisez les packages d'adaptateur listés ci-dessus ou un wrapper ACP
+  compatible.
+</Callout>
+
+## Agents personnalisés comme sous-agents
+
+Les agents personnalisés créés via l'interface de l'application DeerFlow peuvent également être invoqués comme sous-agents en utilisant l'outil `task`. Quand vous spécifiez `agent="my-custom-agent"`, le runtime charge la configuration de cet agent (skills, groupes d'outils, modèle) et l'exécute comme sous-agent pour la tâche déléguée.
+
+<Cards num={2}>
+  <Cards.Card title="Sandbox" href="/docs/harness/sandbox" />
+  <Cards.Card title="Intégration MCP" href="/docs/harness/mcp" />
+</Cards>

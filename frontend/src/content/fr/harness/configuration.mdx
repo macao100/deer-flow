@@ -1,0 +1,169 @@
+---
+title: Configuration
+description: "Le système de configuration de DeerFlow est conçu autour d'un objectif : chaque comportement significatif doit être exprimable dans un fichier de config, pas codé en dur dans l'application. Cela rend les déploiements reproductibles, auditables et faciles à personnaliser par environnement."
+---
+
+import { Callout, Cards } from "nextra/components";
+
+# Configuration
+
+<Callout type="info" emoji="⚙️">
+  Tous les comportements de DeerFlow Harness sont pilotés par{" "}
+  <code>config.yaml</code>. Un seul fichier contrôle quels modèles sont
+  disponibles, comment le sandbox s'exécute, quels outils sont chargés et comment
+  chaque sous-système se comporte.
+</Callout>
+
+Le système de configuration de DeerFlow est conçu autour d'un objectif : chaque comportement significatif doit être exprimable dans un fichier de config, pas codé en dur dans l'application. Cela rend les déploiements reproductibles, auditables et faciles à personnaliser par environnement.
+
+## Emplacement du fichier de config
+
+DeerFlow résout `config.yaml` en utilisant l'ordre de priorité suivant :
+
+1. Le chemin passé à `AppConfig.from_file(config_path)` explicitement.
+2. La variable d'environnement `DEER_FLOW_CONFIG_PATH`.
+3. `backend/config.yaml` (relatif au répertoire backend).
+4. `config.yaml` à la racine du dépôt.
+
+Si aucun de ces chemins n'existe, l'application lève une erreur au démarrage.
+
+Pour utiliser un emplacement personnalisé :
+
+```bash
+export DEER_FLOW_CONFIG_PATH=/path/to/my-config.yaml
+```
+
+## Interpolation de variables d'environnement
+
+Toute valeur de champ peut référencer une variable d'environnement en utilisant la syntaxe `$VAR_NAME` :
+
+```yaml
+models:
+  - name: gpt-4o
+    api_key: $OPENAI_API_KEY
+```
+
+Cela garde les secrets hors du fichier de config lui-même. La variable est résolue à l'exécution depuis l'environnement du processus.
+
+## Le champ `use`
+
+De nombreuses entrées de configuration utilisent un champ `use:` pour spécifier la classe ou l'objet Python à instancier. Le format est :
+
+```
+package.subpackage.module:ClassName
+```
+
+ou pour les objets au niveau du module :
+
+```
+package.subpackage.module:variable_name
+```
+
+Exemples :
+
+```yaml
+sandbox:
+  use: deerflow.sandbox.local:LocalSandboxProvider
+
+tools:
+  - use: deerflow.community.tavily.tools:web_search_tool
+    api_key: $TAVILY_API_KEY
+```
+
+C'est ainsi que DeerFlow atteint la pluggabilité sans coder en dur les références de classes.
+
+## Les champs supplémentaires sont transmis
+
+Pour la configuration des modèles, `ModelConfig` utilise `pydantic ConfigDict(extra="allow")`. Cela signifie que tous les champs supplémentaires que vous ajoutez sous une entrée de modèle sont passés directement au constructeur du modèle. Cela permet aux options spécifiques au fournisseur (comme `extra_body`, `reasoning`, ou des clés de timeout personnalisées) de fonctionner sans modifier le harness :
+
+```yaml
+models:
+  - name: my-model
+    use: langchain_openai:ChatOpenAI
+    model: gpt-4o
+    api_key: $OPENAI_API_KEY
+    some_provider_specific_option: value # transmis au constructeur ChatOpenAI
+```
+
+## Version de configuration
+
+`config.yaml` inclut un champ `config_version` qui suit la version du schéma :
+
+```yaml
+config_version: 6
+```
+
+Quand le schéma change (nouveaux champs, sections renommées), ce numéro est incrémenté. Si votre `config.yaml` local est en retard sur la version actuelle, exécutez :
+
+```bash
+make config-upgrade
+```
+
+Cela fusionne les nouveaux champs de `config.example.yaml` dans votre `config.yaml` existant sans écraser vos personnalisations.
+
+## Référence de configuration des modules
+
+Le tableau suivant mappe chaque section de `config.yaml` de premier niveau à sa page de documentation :
+
+| Section           | Description                                        | Documentation                                                  |
+| ----------------- | -------------------------------------------------- | -------------------------------------------------------------- |
+| `log_level`       | Niveau de log (`debug`/`info`/`warning`/`error`)   | —                                                              |
+| `models`          | Modèles LLM disponibles                            | [Lead Agent](/docs/harness/lead-agent)                         |
+| `token_usage`     | Suivi des tokens par appel de modèle               | [Middlewares](/docs/harness/middlewares)                        |
+| `tools`           | Outils disponibles pour l'agent                    | [Outils](/docs/harness/tools)                                  |
+| `tool_groups`     | Groupes nommés d'outils                            | [Outils](/docs/harness/tools)                                  |
+| `tool_search`     | Chargement différé/à la demande des outils         | [Outils](/docs/harness/tools)                                  |
+| `sandbox`         | Provider sandbox et options                        | [Sandbox](/docs/harness/sandbox)                               |
+| `skills`          | Répertoire de skills et chemin du conteneur        | [Skills](/docs/harness/skills)                                 |
+| `skill_evolution` | Création de skills gérée par l'agent               | [Skills](/docs/harness/skills)                                 |
+| `subagents`       | Timeouts et tours maximum des sous-agents          | [Sous-agents](/docs/harness/subagents)                         |
+| `acp_agents`      | Intégrations d'agents ACP externes                 | [Sous-agents](/docs/harness/subagents)                         |
+| `memory`          | Stockage de mémoire inter-sessions                 | [Mémoire](/docs/harness/memory)                                |
+| `summarization`   | Résumé de conversation                             | [Middlewares](/docs/harness/middlewares)                        |
+| `title`           | Génération automatique du titre de thread          | [Middlewares](/docs/harness/middlewares)                        |
+| `checkpointer`    | Persistance de l'état des threads                  | [Agents & Threads](/docs/application/agents-and-threads)       |
+| `guardrails`      | Autorisation des appels d'outils                   | —                                                              |
+| `stream_bridge`   | Configuration du streaming                         | —                                                              |
+| `uploads`         | Paramètres d'upload de fichiers (convertisseur PDF) | —                                                             |
+| `channels`        | Intégrations de canaux IM (Feishu, Slack, etc.)    | —                                                              |
+
+## Config minimale pour démarrer
+
+Le `config.yaml` valide minimum nécessite au moins un modèle et un sandbox :
+
+```yaml
+config_version: 6
+
+models:
+  - name: gpt-4o
+    use: langchain_openai:ChatOpenAI
+    model: gpt-4o
+    api_key: $OPENAI_API_KEY
+    request_timeout: 600.0
+    max_retries: 2
+    supports_vision: true
+
+sandbox:
+  use: deerflow.sandbox.local:LocalSandboxProvider
+
+tools:
+  - use: deerflow.community.ddg_search.tools:web_search_tool
+  - use: deerflow.community.jina_ai.tools:web_fetch_tool
+  - use: deerflow.sandbox.tools:ls_tool
+  - use: deerflow.sandbox.tools:read_file_tool
+  - use: deerflow.sandbox.tools:write_file_tool
+  - use: deerflow.sandbox.tools:bash_tool
+```
+
+Commencez depuis `config.example.yaml` à la racine du dépôt et décommentez les sections dont vous avez besoin.
+
+<Cards num={2}>
+  <Cards.Card
+    title="Guide de déploiement"
+    href="/docs/application/deployment-guide"
+  />
+  <Cards.Card
+    title="Configuration de l'application"
+    href="/docs/application/configuration"
+  />
+</Cards>

@@ -1,0 +1,65 @@
+---
+title: Utiliser les outils et les skills
+description: Ce tutoriel vous montre comment configurer et utiliser les outils et les skills dans DeerFlow pour donner à l'agent accès à la recherche web, aux opérations sur fichiers, et à des capacités spécifiques à un domaine.
+---
+
+import { Callout } from "nextra/components";
+
+# Utiliser les outils et les skills
+
+Ce tutoriel vous montre comment configurer et utiliser les outils et les skills dans DeerFlow pour donner à l'agent accès à la recherche web, aux opérations sur fichiers, et à des capacités spécifiques à un domaine.
+
+## Configurer les outils
+
+Ajoutez des outils dans `config.yaml` :
+
+```yaml
+tools:
+  # Recherche web
+  - use: deerflow.community.ddg_search.tools:web_search_tool
+
+  # Récupération de contenu web
+  - use: deerflow.community.jina_ai.tools:web_fetch_tool
+
+  # Opérations de fichiers sandbox
+  - use: deerflow.sandbox.tools:ls_tool
+  - use: deerflow.sandbox.tools:read_file_tool
+  - use: deerflow.sandbox.tools:write_file_tool
+  - use: deerflow.sandbox.tools:bash_tool
+```
+
+## Activer les skills
+
+Activez les skills via le panneau extensions de l'application DeerFlow, ou éditez directement `extensions_config.json`.
+
+**Via l'interface de l'application :**
+
+1. Ouvrez l'application DeerFlow
+2. Cliquez sur l'icône Extensions/Skills dans la barre latérale
+3. Trouvez `deep-research` et activez-la
+
+## Utiliser une skill pour la recherche
+
+Avec la skill `deep-research` activée, sélectionnez-la dans la saisie de conversation, puis envoyez une requête de recherche :
+
+```
+Do a deep research on the latest advances in quantum computing, focusing on practical applications.
+```
+
+L'agent exécutera un workflow de recherche multi-étapes incluant la recherche web, la synthèse d'informations et la génération d'un rapport.
+
+## Utiliser la skill d'analyse de données
+
+Activez `data-analysis`, puis uploadez un fichier CSV ou de données et demandez à l'agent de l'analyser :
+
+```
+Analyze this CSV file and identify the top trends.
+```
+
+L'agent utilisera les outils sandbox pour lire le fichier, effectuer l'analyse et produire des graphiques.
+
+## Prochaines étapes
+
+- [Travailler avec la mémoire](/docs/tutorials/work-with-memory)
+- [Référence des outils](/docs/harness/tools)
+- [Référence des skills](/docs/harness/skills)
