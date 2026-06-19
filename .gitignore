@@ -23,6 +23,10 @@ venv/
 # Environment variables
 .env
 
+# Interprocess lock tokens (created next to config.yaml / .env)
+config.yaml.lock
+.env.lock
+
 # Configuration files
 config.yaml
 mcp_config.json
@@ -55,6 +59,7 @@ web/
 # Deployment artifacts
 backend/Dockerfile.langgraph
 config.yaml.bak
+config.yaml.backup*
 .playwright-mcp
 /frontend/test-results/
 /frontend/playwright-report/

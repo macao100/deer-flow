@@ -111,6 +111,13 @@ class LLMErrorHandlingMiddleware(AgentMiddleware[AgentState]):
         self.circuit_failure_threshold = app_config.circuit_breaker.failure_threshold
         self.circuit_recovery_timeout_sec = app_config.circuit_breaker.recovery_timeout_sec
 
+        # Cross-provider fallback (JE): when the primary model is exhausted by a
+        # quota/billing or repeated transient failure, switch to the next model
+        # declared in its `fallback_chain` (config.yaml) instead of giving up.
+        # Stored so the failure path can rebuild the fallback model on demand.
+        self._app_config = app_config
+        self._fallback_by_id = _build_fallback_index(app_config)
+
         # Circuit Breaker state
         self._circuit_lock = threading.Lock()
         self._circuit_failure_count = 0
@@ -275,6 +282,105 @@ class LLMErrorHandlingMiddleware(AgentMiddleware[AgentState]):
             detail=_extract_error_detail(exc),
         )
 
+    # ── Cross-provider fallback ────────────────────────────────────────────────
+    #
+    # Triggered only after the primary model is truly exhausted (retry budget
+    # spent on a transient/busy error, or a non-retriable quota/billing error).
+    # Everything here is wrapped so that ANY unexpected failure degrades to the
+    # pre-existing behaviour (return the user-facing error message) — the goal is
+    # zero regression to the retry path even if the request shape changes.
+
+    _FALLBACK_ELIGIBLE_REASONS: frozenset[str] = frozenset({"quota", "busy", "transient"})
+
+    def _fallback_names_for(self, request: Any) -> list[str]:
+        """Resolve the ordered fallback model names for the request's model."""
+        if not self._fallback_by_id:
+            return []
+        model = getattr(request, "model", None)
+        for ident in _model_identity(model):
+            chain = self._fallback_by_id.get(ident)
+            if chain:
+                return list(chain)
+        return []
+
+    def _build_fallback_model(self, name: str) -> Any:
+        """Build a fresh, tracing-free chat model for the fallback attempt.
+
+        ``thinking_enabled=False`` is deliberate: fallback targets (e.g. a local
+        Ollama model) frequently do not support thinking, and create_chat_model
+        raises if asked to enable it on an unsupported model.
+        """
+        from deerflow.models import create_chat_model
+
+        return create_chat_model(
+            name=name,
+            thinking_enabled=False,
+            app_config=self._app_config,
+            attach_tracing=False,
+        )
+
+    def _emit_fallback_event(self, name: str, reason: str) -> None:
+        try:
+            from langgraph.config import get_stream_writer
+
+            writer = get_stream_writer()
+            writer(
+                {
+                    "type": "llm_fallback",
+                    "model": name,
+                    "reason": reason,
+                    "message": f"Primary model unavailable ({reason}); switching to fallback model '{name}'.",
+                }
+            )
+        except Exception:
+            logger.debug("Failed to emit llm_fallback event", exc_info=True)
+
+    def _run_fallbacks_sync(self, request: Any, handler: Callable[[Any], Any], reason: str) -> Any | None:
+        if reason not in self._FALLBACK_ELIGIBLE_REASONS:
+            return None
+        for name in self._fallback_names_for(request):
+            try:
+                request.model = self._build_fallback_model(name)
+            except Exception:
+                logger.warning("Could not switch to fallback model %r; skipping.", name, exc_info=True)
+                continue
+            logger.warning("LLM fallback: primary failed (%s) — trying fallback model %r.", reason, name)
+            self._emit_fallback_event(name, reason)
+            try:
+                result = handler(request)
+            except GraphBubbleUp:
+                raise
+            except Exception:
+                logger.warning("Fallback model %r also failed; trying next in chain.", name, exc_info=True)
+                continue
+            self._record_success()
+            logger.info("LLM fallback to %r succeeded.", name)
+            return result
+        return None
+
+    async def _run_fallbacks_async(self, request: Any, handler: Callable[[Any], Awaitable[Any]], reason: str) -> Any | None:
+        if reason not in self._FALLBACK_ELIGIBLE_REASONS:
+            return None
+        for name in self._fallback_names_for(request):
+            try:
+                request.model = self._build_fallback_model(name)
+            except Exception:
+                logger.warning("Could not switch to fallback model %r; skipping.", name, exc_info=True)
+                continue
+            logger.warning("LLM fallback: primary failed (%s) — trying fallback model %r.", reason, name)
+            self._emit_fallback_event(name, reason)
+            try:
+                result = await handler(request)
+            except GraphBubbleUp:
+                raise
+            except Exception:
+                logger.warning("Fallback model %r also failed; trying next in chain.", name, exc_info=True)
+                continue
+            self._record_success()
+            logger.info("LLM fallback to %r succeeded.", name)
+            return result
+        return None
+
     def _emit_retry_event(self, attempt: int, wait_ms: int, reason: str) -> None:
         try:
             from langgraph.config import get_stream_writer
@@ -343,6 +449,9 @@ class LLMErrorHandlingMiddleware(AgentMiddleware[AgentState]):
                 )
                 if retriable:
                     self._record_failure()
+                fallback = self._run_fallbacks_sync(request, handler, reason)
+                if fallback is not None:
+                    return fallback
                 return self._build_user_fallback_message(exc, reason)
 
     @override
@@ -395,7 +504,48 @@ class LLMErrorHandlingMiddleware(AgentMiddleware[AgentState]):
                 )
                 if retriable:
                     self._record_failure()
+                fallback = await self._run_fallbacks_async(request, handler, reason)
+                if fallback is not None:
+                    return fallback
                 return self._build_user_fallback_message(exc, reason)
+
+
+def _build_fallback_index(app_config: AppConfig) -> dict[str, list[str]]:
+    """Map model identifiers → ordered fallback model names.
+
+    Keyed by both the config ``name`` and the underlying provider ``model`` id so
+    the middleware can resolve a chain from whatever identity the bound model
+    instance exposes at runtime. Tolerant of missing ``fallback_chain`` (declared
+    as an ``extra`` field on ModelConfig) and of malformed config.
+    """
+    index: dict[str, list[str]] = {}
+    try:
+        models = getattr(app_config, "models", None) or []
+    except Exception:
+        return index
+    for mc in models:
+        chain = getattr(mc, "fallback_chain", None)
+        if not chain or not isinstance(chain, (list, tuple)):
+            continue
+        clean = [str(n) for n in chain if n]
+        if not clean:
+            continue
+        for key in (getattr(mc, "name", None), getattr(mc, "model", None)):
+            if key:
+                index.setdefault(str(key), clean)
+    return index
+
+
+def _model_identity(model: Any) -> list[str]:
+    """Collect candidate identifier strings for a bound chat model instance."""
+    if model is None:
+        return []
+    idents: list[str] = []
+    for attr in ("_deerflow_model_name", "model_name", "model"):
+        value = getattr(model, attr, None)
+        if isinstance(value, str) and value:
+            idents.append(value)
+    return idents
 
 
 def _matches_any(detail: str, patterns: tuple[str, ...]) -> bool:

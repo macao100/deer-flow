@@ -115,6 +115,19 @@ start-daemon:
 stop:
 	@$(RUN_WITH_GIT_BASH) ./scripts/serve.sh --stop
 
+# Logs unifiés (logs/deerflow.log) avec colorisation
+# Options : make logs ARGS="--errors"  make logs ARGS="--filter LLM"
+logs:
+	@$(RUN_WITH_GIT_BASH) ./scripts/logs.sh $(ARGS)
+
+# Logs erreurs uniquement
+logs-errors:
+	@$(RUN_WITH_GIT_BASH) ./scripts/logs.sh --errors
+
+# Logs gateway uniquement
+logs-gateway:
+	@$(RUN_WITH_GIT_BASH) ./scripts/logs.sh --gateway
+
 # Clean up
 clean: stop
 	@echo "Cleaning up..."

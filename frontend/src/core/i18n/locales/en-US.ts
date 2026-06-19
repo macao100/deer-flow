@@ -398,6 +398,9 @@ export const enUS: Translations = {
       tools: "Tools",
       skills: "Skills",
       notification: "Notification",
+      apiKeys: "API Keys",
+      general: "General",
+      models: "Models",
       about: "About",
     },
     memory: {

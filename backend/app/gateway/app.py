@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -11,8 +12,12 @@ from app.gateway.auth_middleware import AuthMiddleware
 from app.gateway.config import get_gateway_config
 from app.gateway.csrf_middleware import CSRFMiddleware, get_configured_cors_origins
 from app.gateway.deps import langgraph_runtime
+from app.gateway.logging_setup import setup_file_logging
+from app.gateway.request_logging import RequestLoggingMiddleware
 from app.gateway.routers import (
     agents,
+    api_keys,
+    app_config_router,
     artifacts,
     assistants_compat,
     auth,
@@ -170,6 +175,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # `app/gateway/deps.py::get_config()` so `config.yaml` edits become
     # visible without a process restart. We deliberately do NOT cache this
     # snapshot on `app.state` to keep that contract enforceable.
+    # Unified file logging — must be first so every subsequent logger is captured
+    _log_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "logs"))
+    setup_file_logging(_log_dir)
+
     try:
         startup_config = get_app_config()
         apply_logging_level(startup_config.log_level)
@@ -338,6 +347,9 @@ This gateway provides runtime endpoints for agent runs plus custom endpoints for
         ],
     )
 
+    # Request logging — outermost so it captures latency of all other middleware
+    app.add_middleware(RequestLoggingMiddleware)
+
     # Auth: reject unauthenticated requests to non-public paths (fail-closed safety net)
     app.add_middleware(AuthMiddleware)
 
@@ -405,6 +417,10 @@ This gateway provides runtime endpoints for agent runs plus custom endpoints for
 
     # Stateless Runs API (stream/wait without a pre-existing thread)
     app.include_router(runs.router)
+
+    # Settings APIs (JE — api keys + config.yaml CRUD)
+    app.include_router(api_keys.router)
+    app.include_router(app_config_router.router)
 
     @app.get("/health", tags=["health"])
     async def health_check() -> dict[str, str]:

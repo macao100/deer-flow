@@ -316,6 +316,9 @@ export interface Translations {
       tools: string;
       skills: string;
       notification: string;
+      apiKeys: string;
+      general: string;
+      models: string;
       about: string;
     };
     memory: {

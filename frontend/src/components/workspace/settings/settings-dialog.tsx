@@ -2,9 +2,12 @@
 
 import {
   BellIcon,
+  BotIcon,
   CableIcon,
+  CpuIcon,
   InfoIcon,
   BrainIcon,
+  KeyRoundIcon,
   PaletteIcon,
   SparklesIcon,
   UserIcon,
@@ -22,7 +25,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { AboutSettingsPage } from "@/components/workspace/settings/about-settings-page";
 import { AccountSettingsPage } from "@/components/workspace/settings/account-settings-page";
 import { AppearanceSettingsPage } from "@/components/workspace/settings/appearance-settings-page";
+import { ApiKeysSettingsPage } from "@/components/workspace/settings/api-keys-settings-page";
 import { ChannelsSettingsPage } from "@/components/workspace/settings/channels-settings-page";
+import { GeneralSettingsPage } from "@/components/workspace/settings/general-settings-page";
+import { ModelsSettingsPage } from "@/components/workspace/settings/models-settings-page";
 import { MemorySettingsPage } from "@/components/workspace/settings/memory-settings-page";
 import { NotificationSettingsPage } from "@/components/workspace/settings/notification-settings-page";
 import { SkillSettingsPage } from "@/components/workspace/settings/skill-settings-page";
@@ -38,6 +44,9 @@ type SettingsSection =
   | "tools"
   | "skills"
   | "notification"
+  | "api-keys"
+  | "general"
+  | "models"
   | "about";
 
 type SettingsDialogProps = React.ComponentProps<typeof Dialog> & {
@@ -87,6 +96,9 @@ export function SettingsDialog(props: SettingsDialogProps) {
       },
       { id: "tools", label: t.settings.sections.tools, icon: WrenchIcon },
       { id: "skills", label: t.settings.sections.skills, icon: SparklesIcon },
+      { id: "api-keys", label: t.settings.sections.apiKeys, icon: KeyRoundIcon },
+      { id: "general", label: t.settings.sections.general, icon: BotIcon },
+      { id: "models", label: t.settings.sections.models, icon: CpuIcon },
       { id: "about", label: t.settings.sections.about, icon: InfoIcon },
     ],
     [
@@ -97,6 +109,9 @@ export function SettingsDialog(props: SettingsDialogProps) {
       t.settings.sections.tools,
       t.settings.sections.skills,
       t.settings.sections.notification,
+      t.settings.sections.apiKeys,
+      t.settings.sections.general,
+      t.settings.sections.models,
       t.settings.sections.about,
     ],
   );
@@ -153,6 +168,9 @@ export function SettingsDialog(props: SettingsDialogProps) {
               )}
               {activeSection === "notification" && <NotificationSettingsPage />}
               {activeSection === "channels" && <ChannelsSettingsPage />}
+              {activeSection === "api-keys" && <ApiKeysSettingsPage />}
+              {activeSection === "general" && <GeneralSettingsPage />}
+              {activeSection === "models" && <ModelsSettingsPage />}
               {activeSection === "about" && <AboutSettingsPage />}
             </div>
           </ScrollArea>

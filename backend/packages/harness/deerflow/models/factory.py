@@ -121,6 +121,11 @@ def create_chat_model(name: str | None = None, thinking_enabled: bool = False, *
             "when_thinking_disabled",
             "thinking",
             "supports_vision",
+            # DeerFlow-only metadata — never forwarded to the LLM provider constructor
+            "input_price_per_mtok",
+            "output_price_per_mtok",
+            "fallback_chain",
+            "api_key_env",
         },
     )
     # Compute effective when_thinking_enabled by merging in the `thinking` shortcut field.
@@ -194,6 +199,15 @@ def create_chat_model(name: str | None = None, thinking_enabled: bool = False, *
             model_settings_from_config["stream_usage"] = True
 
     model_instance = model_class(**kwargs, **model_settings_from_config)
+
+    # Best-effort tag of the config name so downstream consumers (e.g. the
+    # cross-provider fallback in LLMErrorHandlingMiddleware) can recover the
+    # model's config identity from a bound instance. Never let provider-specific
+    # attribute restrictions break model creation.
+    try:
+        object.__setattr__(model_instance, "_deerflow_model_name", name)
+    except Exception:
+        logger.debug("Could not tag model instance with config name %r", name, exc_info=True)
 
     if attach_tracing:
         callbacks = build_tracing_callbacks()

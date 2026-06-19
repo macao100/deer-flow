@@ -28,6 +28,7 @@ set -e
 
 REPO_ROOT="$(builtin cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1 && pwd -P)"
 cd "$REPO_ROOT"
+SERVE_PIDFILE="$REPO_ROOT/logs/serve.pid"
 
 # ── Load .env ────────────────────────────────────────────────────────────────
 
@@ -119,7 +120,7 @@ _is_deerflow_pid() {
 # (or starting, which stops first) isn't silently killing someone else's run.
 _report_reclaimed_ports() {
     local port pid files root owner
-    for port in 8001 3000 2026; do
+    for port in 8001 3001 2026; do
         for pid in $(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null); do
             _is_deerflow_pid "$pid" || continue
             files=$(lsof -p "$pid" 2>/dev/null)
@@ -247,20 +248,34 @@ _kill_repo_nginx() {
 
 stop_all() {
     echo "Stopping all services..."
+    # Kill any previous serve.sh instance (closes the old terminal automatically)
+    if [ -f "$SERVE_PIDFILE" ]; then
+        local old_pid
+        old_pid=$(cat "$SERVE_PIDFILE" 2>/dev/null || true)
+        if [ -n "$old_pid" ] && [ "$old_pid" != "$$" ] && kill -0 "$old_pid" 2>/dev/null; then
+            kill "$old_pid" 2>/dev/null || true
+        fi
+        rm -f "$SERVE_PIDFILE"
+    fi
     _report_reclaimed_ports
     _kill_repo_processes "uvicorn app.gateway.app:app"
     _kill_repo_processes "next dev"
     _kill_repo_processes "next start"
     _kill_repo_processes "next-server"
-    nginx -c "$REPO_ROOT/docker/nginx/nginx.local.conf" -p "$REPO_ROOT" -s quit 2>/dev/null || true
-    sleep 1
+    # Only ask nginx to quit if it actually left a pid file. Calling `-s quit`
+    # with no running master spams logs/nginx-error.log with a recurring
+    # "CreateFile nginx.pid failed (file not found)" alert on every shutdown.
+    if [ -f "$REPO_ROOT/logs/nginx.pid" ]; then
+        nginx -c "$REPO_ROOT/docker/nginx/nginx.local.conf" -p "$REPO_ROOT" -s quit 2>/dev/null || true
+        sleep 1
+    fi
     _kill_repo_nginx
     # Force-kill any survivors still holding the service ports. 2026 is included
     # so a lingering nginx (or any deer-flow process) that _kill_repo_nginx did
     # not match by name still gets reclaimed — otherwise `make dev` fails its
     # nginx port preflight.
     _kill_repo_port 8001
-    _kill_repo_port 3000
+    _kill_repo_port 3001
     _kill_repo_port 2026
     ./scripts/cleanup-containers.sh deer-flow-sandbox 2>/dev/null || true
     echo "✓ All services stopped"
@@ -326,7 +341,7 @@ export DEER_FLOW_HOME
 
 # Extra flags for uvicorn
 if $DEV_MODE && ! $DAEMON_MODE; then
-    GATEWAY_EXTRA_FLAGS="--reload --reload-include='*.yaml' --reload-include='.env' --reload-exclude='*.pyc' --reload-exclude='__pycache__' --reload-exclude='$REPO_ROOT/backend/sandbox' --reload-exclude='$DEER_FLOW_HOME' --reload-exclude='$BACKEND_RUNTIME_HOME'"
+    GATEWAY_EXTRA_FLAGS="--reload --reload-dir app --reload-dir packages --reload-include='*.yaml' --reload-include='.env' --reload-exclude='*.pyc' --reload-exclude='__pycache__' --reload-exclude='$REPO_ROOT/backend/sandbox' --reload-exclude='$DEER_FLOW_HOME' --reload-exclude='$BACKEND_RUNTIME_HOME'"
 else
     GATEWAY_EXTRA_FLAGS=""
 fi
@@ -401,7 +416,7 @@ echo "  Mode: $MODE_LABEL"
 echo ""
 echo "  Services:"
 echo "    Gateway     → localhost:8001  (REST API + agent runtime)"
-echo "    Frontend    → localhost:3000  (Next.js)"
+echo "    Frontend    → localhost:3001  (Next.js)"
 echo "    Nginx       → localhost:2026  (reverse proxy)"
 echo ""
 
@@ -410,6 +425,7 @@ echo ""
 cleanup() {
     local status="${1:-0}"
     trap - INT TERM
+    rm -f "$SERVE_PIDFILE"
     echo ""
     stop_all
     exit "$status"
@@ -463,7 +479,7 @@ run_service "Gateway" \
 # 2. Frontend
 run_service "Frontend" \
     "cd frontend && $FRONTEND_CMD > ../logs/frontend.log 2>&1" \
-    3000 120
+    3001 120
 
 # 3. Nginx
 run_service "Nginx" \
@@ -491,6 +507,9 @@ if $DAEMON_MODE; then
     # Detach — trap is no longer needed
     trap - INT TERM
 else
+    # Register PID so the next `make dev` kills this terminal automatically
+    mkdir -p "$REPO_ROOT/logs"
+    echo $$ > "$SERVE_PIDFILE"
     echo "  Press Ctrl+C to stop all services"
     wait
 fi

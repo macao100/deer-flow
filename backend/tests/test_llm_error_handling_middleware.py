@@ -12,6 +12,7 @@ from deerflow.agents.middlewares.llm_error_handling_middleware import (
     LLMErrorHandlingMiddleware,
 )
 from deerflow.config.app_config import AppConfig
+from deerflow.config.model_config import ModelConfig
 from deerflow.config.sandbox_config import SandboxConfig
 
 
@@ -678,3 +679,104 @@ def test_user_message_for_quota_unchanged() -> None:
 
     assert "out of quota" in message
     assert "streaming response was interrupted" not in message
+
+
+# ── Cross-provider fallback (fallback_chain) ──────────────────────────────────
+
+
+def _make_app_config_with_fallback() -> AppConfig:
+    """AppConfig with a primary model whose fallback_chain points at a backup."""
+    primary = ModelConfig(name="primary", use="x:Fake", model="primary", fallback_chain=["backup"])
+    backup = ModelConfig(name="backup", use="x:Fake", model="backup")
+    return AppConfig(sandbox=SandboxConfig(use="test"), models=[primary, backup])
+
+
+def test_async_fallback_switches_model_on_quota(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-retriable quota failure on the primary must transparently switch to
+    the next model in fallback_chain and return its successful response."""
+    middleware = LLMErrorHandlingMiddleware(app_config=_make_app_config_with_fallback())
+
+    fake_backup = SimpleNamespace(_deerflow_model_name="backup")
+    monkeypatch.setattr("deerflow.models.create_chat_model", lambda **_kw: fake_backup)
+
+    events: list[dict] = []
+    monkeypatch.setattr("langgraph.config.get_stream_writer", lambda: events.append)
+
+    request = SimpleNamespace(model=SimpleNamespace(model_name="primary"))
+    seen: list[str | None] = []
+
+    async def handler(req: Any) -> AIMessage:
+        ident = getattr(req.model, "_deerflow_model_name", None) or getattr(req.model, "model_name", None)
+        seen.append(ident)
+        if ident == "primary":
+            raise FakeError("insufficient_quota", status_code=429, code="insufficient_quota")
+        return AIMessage(content="from-backup")
+
+    result = asyncio.run(middleware.awrap_model_call(request, handler))
+
+    assert isinstance(result, AIMessage)
+    assert result.content == "from-backup"
+    assert seen == ["primary", "backup"]
+    assert any(event["type"] == "llm_fallback" for event in events)
+
+
+def test_sync_fallback_switches_model_after_transient_exhaustion(monkeypatch: pytest.MonkeyPatch) -> None:
+    """After the retry budget is spent on a transient error, the sync path must
+    fall back to the backup model rather than returning an error message."""
+    middleware = LLMErrorHandlingMiddleware(app_config=_make_app_config_with_fallback())
+    middleware.retry_max_attempts = 1  # exhaust immediately, no sleeps
+
+    fake_backup = SimpleNamespace(_deerflow_model_name="backup")
+    monkeypatch.setattr("deerflow.models.create_chat_model", lambda **_kw: fake_backup)
+    monkeypatch.setattr("langgraph.config.get_stream_writer", lambda: (lambda _e: None))
+
+    request = SimpleNamespace(model=SimpleNamespace(model_name="primary"))
+    seen: list[str | None] = []
+
+    def handler(req: Any) -> AIMessage:
+        ident = getattr(req.model, "_deerflow_model_name", None) or getattr(req.model, "model_name", None)
+        seen.append(ident)
+        if ident == "primary":
+            raise FakeError("Connection error.", status_code=503)
+        return AIMessage(content="from-backup")
+
+    result = middleware.wrap_model_call(request, handler)
+
+    assert isinstance(result, AIMessage)
+    assert result.content == "from-backup"
+    assert seen == ["primary", "backup"]
+
+
+def test_no_fallback_when_chain_absent_returns_user_message() -> None:
+    """Models without a fallback_chain must keep the legacy behaviour: a quota
+    error returns the user-facing message, no fallback attempted."""
+    middleware = LLMErrorHandlingMiddleware(app_config=_make_app_config())
+
+    async def handler(_req: Any) -> AIMessage:
+        raise FakeError("insufficient_quota", status_code=429, code="insufficient_quota")
+
+    request = SimpleNamespace(model=SimpleNamespace(model_name="solo"))
+    result = asyncio.run(middleware.awrap_model_call(request, handler))
+
+    assert result.additional_kwargs["deerflow_error_fallback"] is True
+    assert result.additional_kwargs["error_reason"] == "quota"
+
+
+def test_fallback_failure_degrades_to_user_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If the fallback model also fails, the user-facing error message is returned
+    (no exception escapes)."""
+    middleware = LLMErrorHandlingMiddleware(app_config=_make_app_config_with_fallback())
+
+    fake_backup = SimpleNamespace(_deerflow_model_name="backup")
+    monkeypatch.setattr("deerflow.models.create_chat_model", lambda **_kw: fake_backup)
+    monkeypatch.setattr("langgraph.config.get_stream_writer", lambda: (lambda _e: None))
+
+    request = SimpleNamespace(model=SimpleNamespace(model_name="primary"))
+
+    async def handler(_req: Any) -> AIMessage:
+        raise FakeError("insufficient_quota", status_code=429, code="insufficient_quota")
+
+    result = asyncio.run(middleware.awrap_model_call(request, handler))
+
+    assert result.additional_kwargs["deerflow_error_fallback"] is True
+    assert result.additional_kwargs["error_reason"] == "quota"
