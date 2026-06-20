@@ -1,4 +1,17 @@
-"""LLM error handling middleware with retry/backoff and user-facing fallbacks."""
+"""LLM error handling middleware with retry/backoff and user-facing fallbacks.
+
+Cross-provider fallback (merged canonical implementation):
+- Per-request model resolution (correct when sub-agents bind a different model
+  than ``models[0]``), with an optional explicit ``model_name`` hint.
+- Triggers on circuit-open, and after the retry budget is exhausted on a
+  quota / busy / transient failure. Deliberately NOT on ``auth`` (an invalid key
+  must surface, not be silently masked by a weaker local fallback) nor on a
+  ``generic`` (unclassified) error.
+- Uses ``request.override(model=...)`` (idiomatic, no in-place mutation), with a
+  guarded fallback to attribute assignment for older request shapes.
+- Everything in the fallback path is wrapped so any unexpected failure degrades
+  to the pre-existing behaviour (return the user-facing error message).
+"""
 
 from __future__ import annotations
 
@@ -105,17 +118,19 @@ class LLMErrorHandlingMiddleware(AgentMiddleware[AgentState]):
     retry_base_delay_ms: int = 1000
     retry_cap_delay_ms: int = 8000
 
-    def __init__(self, *, app_config: AppConfig, **kwargs: Any) -> None:
+    def __init__(self, *, app_config: AppConfig, model_name: str | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
 
         self.circuit_failure_threshold = app_config.circuit_breaker.failure_threshold
         self.circuit_recovery_timeout_sec = app_config.circuit_breaker.recovery_timeout_sec
 
-        # Cross-provider fallback (JE): when the primary model is exhausted by a
-        # quota/billing or repeated transient failure, switch to the next model
-        # declared in its `fallback_chain` (config.yaml) instead of giving up.
-        # Stored so the failure path can rebuild the fallback model on demand.
+        # Cross-provider fallback. `model_name` is an optional hint for the
+        # primary model this middleware fronts (used for event labelling and as
+        # a last-resort chain lookup); the actual chain is resolved per-request
+        # from the bound model so sub-agents on a different model still get their
+        # own fallback_chain.
         self._app_config = app_config
+        self._model_name = model_name or (app_config.models[0].name if app_config.models else "primary")
         self._fallback_by_id = _build_fallback_index(app_config)
 
         # Circuit Breaker state
@@ -283,17 +298,19 @@ class LLMErrorHandlingMiddleware(AgentMiddleware[AgentState]):
         )
 
     # ── Cross-provider fallback ────────────────────────────────────────────────
-    #
-    # Triggered only after the primary model is truly exhausted (retry budget
-    # spent on a transient/busy error, or a non-retriable quota/billing error).
-    # Everything here is wrapped so that ANY unexpected failure degrades to the
-    # pre-existing behaviour (return the user-facing error message) — the goal is
-    # zero regression to the retry path even if the request shape changes.
 
-    _FALLBACK_ELIGIBLE_REASONS: frozenset[str] = frozenset({"quota", "busy", "transient"})
+    # Reasons that warrant switching providers. ``circuit_open`` = the primary's
+    # circuit breaker tripped; quota/busy/transient = exhausted on the primary.
+    # ``auth`` and ``generic`` are intentionally excluded.
+    _FALLBACK_ELIGIBLE_REASONS: frozenset[str] = frozenset({"quota", "busy", "transient", "circuit_open"})
 
     def _fallback_names_for(self, request: Any) -> list[str]:
-        """Resolve the ordered fallback model names for the request's model."""
+        """Resolve the ordered fallback model names for this request's model.
+
+        Primary resolution is per-request (from the bound model's identity);
+        falls back to the construction-time ``model_name`` hint if the bound
+        model cannot be identified.
+        """
         if not self._fallback_by_id:
             return []
         model = getattr(request, "model", None)
@@ -301,10 +318,15 @@ class LLMErrorHandlingMiddleware(AgentMiddleware[AgentState]):
             chain = self._fallback_by_id.get(ident)
             if chain:
                 return list(chain)
-        return []
+        return list(self._fallback_by_id.get(self._model_name, []))
+
+    def _primary_label(self, request: Any) -> str:
+        """Human-readable name of the failing primary model, for events/logs."""
+        idents = _model_identity(getattr(request, "model", None))
+        return idents[0] if idents else self._model_name
 
     def _build_fallback_model(self, name: str) -> Any:
-        """Build a fresh, tracing-free chat model for the fallback attempt.
+        """Build a fresh, tracing-free chat model for a fallback attempt.
 
         ``thinking_enabled=False`` is deliberate: fallback targets (e.g. a local
         Ollama model) frequently do not support thinking, and create_chat_model
@@ -319,7 +341,20 @@ class LLMErrorHandlingMiddleware(AgentMiddleware[AgentState]):
             attach_tracing=False,
         )
 
-    def _emit_fallback_event(self, name: str, reason: str) -> None:
+    @staticmethod
+    def _swap_model(request: Any, model: Any) -> Any:
+        """Return a request bound to ``model``.
+
+        Prefers the idiomatic, non-mutating ``request.override(model=...)``;
+        falls back to in-place assignment for request shapes without override.
+        """
+        override_fn = getattr(request, "override", None)
+        if callable(override_fn):
+            return override_fn(model=model)
+        request.model = model
+        return request
+
+    def _emit_fallback_event(self, from_model: str, to_model: str, reason: str) -> None:
         try:
             from langgraph.config import get_stream_writer
 
@@ -327,9 +362,11 @@ class LLMErrorHandlingMiddleware(AgentMiddleware[AgentState]):
             writer(
                 {
                     "type": "llm_fallback",
-                    "model": name,
+                    "from_model": from_model,
+                    "to_model": to_model,
+                    "model": to_model,  # back-compat alias
                     "reason": reason,
-                    "message": f"Primary model unavailable ({reason}); switching to fallback model '{name}'.",
+                    "message": f"Primary model '{from_model}' unavailable ({reason}); switching to '{to_model}'.",
                 }
             )
         except Exception:
@@ -338,16 +375,17 @@ class LLMErrorHandlingMiddleware(AgentMiddleware[AgentState]):
     def _run_fallbacks_sync(self, request: Any, handler: Callable[[Any], Any], reason: str) -> Any | None:
         if reason not in self._FALLBACK_ELIGIBLE_REASONS:
             return None
+        from_model = self._primary_label(request)
         for name in self._fallback_names_for(request):
             try:
-                request.model = self._build_fallback_model(name)
+                fb_request = self._swap_model(request, self._build_fallback_model(name))
             except Exception:
-                logger.warning("Could not switch to fallback model %r; skipping.", name, exc_info=True)
+                logger.warning("Could not build/switch to fallback model %r; skipping.", name, exc_info=True)
                 continue
-            logger.warning("LLM fallback: primary failed (%s) — trying fallback model %r.", reason, name)
-            self._emit_fallback_event(name, reason)
+            logger.warning("LLM fallback: %s -> %s (reason: %s)", from_model, name, reason)
+            self._emit_fallback_event(from_model, name, reason)
             try:
-                result = handler(request)
+                result = handler(fb_request)
             except GraphBubbleUp:
                 raise
             except Exception:
@@ -361,16 +399,17 @@ class LLMErrorHandlingMiddleware(AgentMiddleware[AgentState]):
     async def _run_fallbacks_async(self, request: Any, handler: Callable[[Any], Awaitable[Any]], reason: str) -> Any | None:
         if reason not in self._FALLBACK_ELIGIBLE_REASONS:
             return None
+        from_model = self._primary_label(request)
         for name in self._fallback_names_for(request):
             try:
-                request.model = self._build_fallback_model(name)
+                fb_request = self._swap_model(request, self._build_fallback_model(name))
             except Exception:
-                logger.warning("Could not switch to fallback model %r; skipping.", name, exc_info=True)
+                logger.warning("Could not build/switch to fallback model %r; skipping.", name, exc_info=True)
                 continue
-            logger.warning("LLM fallback: primary failed (%s) — trying fallback model %r.", reason, name)
-            self._emit_fallback_event(name, reason)
+            logger.warning("LLM fallback: %s -> %s (reason: %s)", from_model, name, reason)
+            self._emit_fallback_event(from_model, name, reason)
             try:
-                result = await handler(request)
+                result = await handler(fb_request)
             except GraphBubbleUp:
                 raise
             except Exception:
@@ -406,6 +445,9 @@ class LLMErrorHandlingMiddleware(AgentMiddleware[AgentState]):
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelCallResult:
         if self._check_circuit():
+            fallback = self._run_fallbacks_sync(request, handler, "circuit_open")
+            if fallback is not None:
+                return fallback
             return self._build_error_fallback_message(
                 self._build_circuit_breaker_message(),
                 error_type="CircuitBreakerOpen",
@@ -461,6 +503,9 @@ class LLMErrorHandlingMiddleware(AgentMiddleware[AgentState]):
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelCallResult:
         if self._check_circuit():
+            fallback = await self._run_fallbacks_async(request, handler, "circuit_open")
+            if fallback is not None:
+                return fallback
             return self._build_error_fallback_message(
                 self._build_circuit_breaker_message(),
                 error_type="CircuitBreakerOpen",

@@ -728,7 +728,7 @@ def test_sync_fallback_switches_model_after_transient_exhaustion(monkeypatch: py
 
     fake_backup = SimpleNamespace(_deerflow_model_name="backup")
     monkeypatch.setattr("deerflow.models.create_chat_model", lambda **_kw: fake_backup)
-    monkeypatch.setattr("langgraph.config.get_stream_writer", lambda: (lambda _e: None))
+    monkeypatch.setattr("langgraph.config.get_stream_writer", lambda: lambda _e: None)
 
     request = SimpleNamespace(model=SimpleNamespace(model_name="primary"))
     seen: list[str | None] = []
@@ -769,7 +769,7 @@ def test_fallback_failure_degrades_to_user_message(monkeypatch: pytest.MonkeyPat
 
     fake_backup = SimpleNamespace(_deerflow_model_name="backup")
     monkeypatch.setattr("deerflow.models.create_chat_model", lambda **_kw: fake_backup)
-    monkeypatch.setattr("langgraph.config.get_stream_writer", lambda: (lambda _e: None))
+    monkeypatch.setattr("langgraph.config.get_stream_writer", lambda: lambda _e: None)
 
     request = SimpleNamespace(model=SimpleNamespace(model_name="primary"))
 
@@ -780,3 +780,35 @@ def test_fallback_failure_degrades_to_user_message(monkeypatch: pytest.MonkeyPat
 
     assert result.additional_kwargs["deerflow_error_fallback"] is True
     assert result.additional_kwargs["error_reason"] == "quota"
+
+
+def test_circuit_open_triggers_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When the primary's circuit breaker is OPEN, the request must fall back to
+    the backup model (reason 'circuit_open') instead of returning the
+    circuit-breaker message — the primary is never even called."""
+    middleware = LLMErrorHandlingMiddleware(app_config=_make_app_config_with_fallback())
+    # Force the circuit OPEN far into the future.
+    middleware._circuit_state = "open"
+    middleware._circuit_open_until = 1e18
+
+    fake_backup = SimpleNamespace(_deerflow_model_name="backup")
+    monkeypatch.setattr("deerflow.models.create_chat_model", lambda **_kw: fake_backup)
+    events: list[dict] = []
+    monkeypatch.setattr("langgraph.config.get_stream_writer", lambda: events.append)
+
+    request = SimpleNamespace(model=SimpleNamespace(model_name="primary"))
+    seen: list[str | None] = []
+
+    def handler(req: Any) -> AIMessage:
+        seen.append(getattr(req.model, "_deerflow_model_name", None) or getattr(req.model, "model_name", None))
+        return AIMessage(content="from-backup")
+
+    result = middleware.wrap_model_call(request, handler)
+
+    assert isinstance(result, AIMessage)
+    assert result.content == "from-backup"
+    assert seen == ["backup"]  # primary skipped: circuit was open
+    assert any(e["type"] == "llm_fallback" and e["reason"] == "circuit_open" for e in events)
+    # Merged event shape carries both from_model and to_model.
+    fb = next(e for e in events if e["type"] == "llm_fallback")
+    assert fb["from_model"] == "primary" and fb["to_model"] == "backup"

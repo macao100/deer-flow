@@ -51,7 +51,7 @@ async def local_docs_search_tool(query: str, k: int = _DEFAULT_K) -> str:
         return json.dumps(
             {
                 "error": "Index not built yet.",
-                "hint": f"Run: python -m deerflow.community.local_rag.indexer --source-dir <docs>",
+                "hint": "Run: python -m deerflow.community.local_rag.indexer --source-dir <docs>",
                 "index_path": index_path,
             },
             ensure_ascii=False,

@@ -9,8 +9,8 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 import struct
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import httpx
 import numpy as np
@@ -25,6 +25,7 @@ EmbedFn = Callable[[list[str]], list[list[float]]]
 
 
 # ── Text chunking ──────────────────────────────────────────────────────────────
+
 
 def _chunk_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
     words = text.split()
@@ -46,6 +47,7 @@ def _chunk_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
 
 # ── Vector packing ─────────────────────────────────────────────────────────────
 
+
 def _pack_vector(v: list[float]) -> bytes:
     return struct.pack(f"{len(v)}f", *v)
 
@@ -56,15 +58,13 @@ def _unpack_vector(b: bytes) -> np.ndarray:
 
 # ── SQLite helpers ─────────────────────────────────────────────────────────────
 
+
 def _open_db(index_path: str | Path) -> sqlite3.Connection:
     path = Path(index_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
     conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS chunks "
-        "(id INTEGER PRIMARY KEY, source TEXT NOT NULL, content TEXT NOT NULL, embedding BLOB NOT NULL)"
-    )
+    conn.execute("CREATE TABLE IF NOT EXISTS chunks (id INTEGER PRIMARY KEY, source TEXT NOT NULL, content TEXT NOT NULL, embedding BLOB NOT NULL)")
     conn.commit()
     return conn
 
@@ -80,6 +80,7 @@ def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
 
 
 # ── Cosine search (sync, safe for asyncio.to_thread) ──────────────────────────
+
 
 def search_sync(
     index_path: str | Path,
@@ -111,6 +112,7 @@ def search_sync(
 
 # ── Embedding via Ollama HTTP API ─────────────────────────────────────────────
 
+
 async def embed_texts(
     texts: list[str],
     model: str,
@@ -127,6 +129,7 @@ async def embed_texts(
 
 
 # ── Index builder ──────────────────────────────────────────────────────────────
+
 
 async def build_index(
     source_dir: str | Path,
@@ -150,10 +153,7 @@ async def build_index(
     conn.execute("DELETE FROM chunks")
     conn.commit()
 
-    files = sorted(
-        p for p in source_path.rglob("*")
-        if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
-    )
+    files = sorted(p for p in source_path.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS)
 
     total_chunks = 0
     last_dim: int = 0

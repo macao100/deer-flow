@@ -148,6 +148,7 @@ _MODEL_TEMPLATES: dict[str, dict[str, Any]] = {
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _resolve_config_path() -> Path:
     return AppConfig.resolve_config_path()
 
@@ -218,6 +219,7 @@ def _deep_set(d: dict, key: str, value: Any) -> None:
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
+
 
 class GeneralConfigResponse(BaseModel):
     log_level: str = "info"
@@ -320,6 +322,7 @@ class ConfigWriteResponse(BaseModel):
 
 # ── General config endpoints ──────────────────────────────────────────────────
 
+
 @router.get("/config", response_model=GeneralConfigResponse, summary="Get general app config")
 async def get_general_config(config: AppConfig = Depends(get_config)) -> GeneralConfigResponse:
     return GeneralConfigResponse(
@@ -389,6 +392,7 @@ async def patch_general_config(patch: GeneralConfigPatch) -> ConfigWriteResponse
 
 
 # ── Models config endpoints ───────────────────────────────────────────────────
+
 
 def _yaml_model_to_entry(m: dict) -> ModelEntry:
     api_key_raw: str = m.get("api_key", "") or ""
