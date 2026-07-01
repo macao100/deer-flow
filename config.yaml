@@ -232,6 +232,19 @@ uploads:
 sandbox:
   use: deerflow.sandbox.local:LocalSandboxProvider
   allow_host_bash: false
+  mounts:
+    # Accès complet au dossier de projets JE
+    - host_path: D:\00 IA-JE
+      container_path: /mnt/projects
+      read_only: false
+    # Accès au bureau Windows
+    - host_path: C:\Users\JE\Desktop
+      container_path: /mnt/desktop
+      read_only: false
+    # Accès aux documents
+    - host_path: C:\Users\JE\Documents
+      container_path: /mnt/documents
+      read_only: false
   bash_output_max_chars: 20000
   read_file_output_max_chars: 50000
   ls_output_max_chars: 20000
