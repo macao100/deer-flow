@@ -114,8 +114,9 @@ class InfoQuestClient:
         }
 
         # Add API key if available
-        if os.getenv("INFOQUEST_API_KEY"):
-            headers["Authorization"] = f"Bearer {os.getenv('INFOQUEST_API_KEY')}"
+        api_key = os.getenv("INFOQUEST_API_KEY", "")
+        if api_key and not api_key.startswith("your-"):
+            headers["Authorization"] = f"Bearer {api_key}"
             logger.debug("API key added to request headers")
         else:
             logger.warning("InfoQuest API key is not set. Provide your own key for authentication.")
