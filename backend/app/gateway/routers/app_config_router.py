@@ -339,8 +339,8 @@ async def get_general_config(config: AppConfig = Depends(get_config)) -> General
         memory_fact_confidence_threshold=getattr(config.memory, "fact_confidence_threshold", 0.7),
         memory_max_injection_tokens=getattr(config.memory, "max_injection_tokens", 2000),
         memory_token_counting=getattr(config.memory, "token_counting", "tiktoken"),
-        subagents_enabled=config.subagents.enabled,
-        loop_detection_enabled=config.loop_detection.enabled,
+        subagents_enabled=getattr(config.subagents, "enabled", True),
+        loop_detection_enabled=getattr(config.loop_detection, "enabled", True),
     )
 
 
