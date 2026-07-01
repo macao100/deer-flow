@@ -139,6 +139,7 @@ def _set_session_cookie(response: Response, token: str, request: Request) -> Non
     response.set_cookie(
         key="access_token",
         value=token,
+        path="/",
         httponly=True,
         secure=is_https,
         samesite="lax",
