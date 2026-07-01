@@ -397,6 +397,7 @@ export const frFR: Translations = {
       memory: "Mémoire",
       tools: "Outils",
       skills: "Skills",
+      mcp: "MCP",
       notification: "Notifications",
       apiKeys: "Clés API",
       general: "Général",

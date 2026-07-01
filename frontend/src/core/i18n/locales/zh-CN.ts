@@ -381,6 +381,7 @@ export const zhCN: Translations = {
       memory: "记忆",
       tools: "工具",
       skills: "技能",
+      mcp: "MCP",
       notification: "通知",
       apiKeys: "API 密钥",
       general: "通用",

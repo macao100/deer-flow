@@ -74,6 +74,21 @@ class SkillRollbackRequest(BaseModel):
     history_index: int = Field(default=-1, description="History entry index to restore from, defaulting to the latest change.")
 
 
+class CustomSkillCreateRequest(BaseModel):
+    name: str = Field(..., description="Unique skill name (slug)")
+    content: str = Field(..., description="SKILL.md content")
+
+
+class SkillScanRequest(BaseModel):
+    content: str = Field(..., description="SKILL.md content to scan")
+    skill_name: str | None = Field(None, description="Skill name for context in scan results")
+
+
+class SkillScanResponse(BaseModel):
+    decision: str = Field(..., description="allow, warn, or block")
+    reason: str = Field(..., description="Explanation of the scan decision")
+
+
 def _skill_to_response(skill: Skill) -> SkillResponse:
     """Convert a Skill object to a SkillResponse."""
     return SkillResponse(
@@ -276,6 +291,58 @@ async def rollback_custom_skill(skill_name: str, request: SkillRollbackRequest, 
     except Exception as e:
         logger.error("Failed to roll back custom skill %s: %s", skill_name, e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to roll back custom skill: {str(e)}")
+
+
+@router.post("/skills/custom/scan", response_model=SkillScanResponse, summary="Security-scan skill content without saving")
+async def scan_skill(request: SkillScanRequest, config: AppConfig = Depends(get_config)) -> SkillScanResponse:
+    """Run the security scanner on skill content without persisting anything."""
+    try:
+        location = f"{request.skill_name or 'new-skill'}/{SKILL_MD_FILE}"
+        scan = await scan_skill_content(request.content, executable=False, location=location, app_config=config)
+        return SkillScanResponse(decision=scan.decision, reason=scan.reason)
+    except Exception as e:
+        logger.error("Skill scan failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Scan failed: {str(e)}")
+
+
+@router.post("/skills/custom", response_model=CustomSkillContentResponse, summary="Create a new custom skill")
+async def create_custom_skill(request: CustomSkillCreateRequest, config: AppConfig = Depends(get_config)) -> CustomSkillContentResponse:
+    """Create a new custom skill with security scanning."""
+    try:
+        skill_name = request.name.strip().replace("\r\n", "").replace("\n", "")
+        if not skill_name:
+            raise HTTPException(status_code=400, detail="Skill name is required")
+        storage = get_or_new_skill_storage(app_config=config)
+        if storage.custom_skill_exists(skill_name):
+            raise HTTPException(status_code=409, detail=f"Custom skill '{skill_name}' already exists")
+        storage.validate_skill_markdown_content(skill_name, request.content)
+        scan = await scan_skill_content(request.content, executable=False, location=f"{skill_name}/{SKILL_MD_FILE}", app_config=config)
+        if scan.decision == "block":
+            raise HTTPException(status_code=400, detail=f"Security scan blocked the skill: {scan.reason}")
+        storage.write_custom_skill(skill_name, SKILL_MD_FILE, request.content)
+        storage.append_history(
+            skill_name,
+            {
+                "action": "human_create",
+                "author": "human",
+                "thread_id": None,
+                "file_path": SKILL_MD_FILE,
+                "prev_content": None,
+                "new_content": request.content,
+                "scanner": {"decision": scan.decision, "reason": scan.reason},
+            },
+        )
+        await refresh_skills_system_prompt_cache_async()
+        skills = storage.load_skills(enabled_only=False)
+        skill = next((s for s in skills if s.name == skill_name and s.category == SkillCategory.CUSTOM), None)
+        if skill is None:
+            raise HTTPException(status_code=500, detail="Skill created but could not be loaded")
+        return CustomSkillContentResponse(**_skill_to_response(skill).model_dump(), content=request.content)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to create custom skill %s: %s", request.name, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create custom skill: {str(e)}")
 
 
 @router.get(

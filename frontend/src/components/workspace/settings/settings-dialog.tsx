@@ -9,6 +9,7 @@ import {
   BrainIcon,
   KeyRoundIcon,
   PaletteIcon,
+  ServerIcon,
   SparklesIcon,
   UserIcon,
   WrenchIcon,
@@ -27,6 +28,7 @@ import { AccountSettingsPage } from "@/components/workspace/settings/account-set
 import { AppearanceSettingsPage } from "@/components/workspace/settings/appearance-settings-page";
 import { ApiKeysSettingsPage } from "@/components/workspace/settings/api-keys-settings-page";
 import { ChannelsSettingsPage } from "@/components/workspace/settings/channels-settings-page";
+import { MCPSettingsPage } from "@/components/workspace/settings/mcp-settings-page";
 import { GeneralSettingsPage } from "@/components/workspace/settings/general-settings-page";
 import { ModelsSettingsPage } from "@/components/workspace/settings/models-settings-page";
 import { MemorySettingsPage } from "@/components/workspace/settings/memory-settings-page";
@@ -43,6 +45,7 @@ type SettingsSection =
   | "memory"
   | "tools"
   | "skills"
+  | "mcp"
   | "notification"
   | "api-keys"
   | "general"
@@ -96,6 +99,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
       },
       { id: "tools", label: t.settings.sections.tools, icon: WrenchIcon },
       { id: "skills", label: t.settings.sections.skills, icon: SparklesIcon },
+      { id: "mcp", label: t.settings.sections.mcp, icon: ServerIcon },
       { id: "api-keys", label: t.settings.sections.apiKeys, icon: KeyRoundIcon },
       { id: "general", label: t.settings.sections.general, icon: BotIcon },
       { id: "models", label: t.settings.sections.models, icon: CpuIcon },
@@ -108,6 +112,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
       t.settings.sections.memory,
       t.settings.sections.tools,
       t.settings.sections.skills,
+      t.settings.sections.mcp,
       t.settings.sections.notification,
       t.settings.sections.apiKeys,
       t.settings.sections.general,
@@ -166,6 +171,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
                   onClose={() => props.onOpenChange?.(false)}
                 />
               )}
+              {activeSection === "mcp" && <MCPSettingsPage />}
               {activeSection === "notification" && <NotificationSettingsPage />}
               {activeSection === "channels" && <ChannelsSettingsPage />}
               {activeSection === "api-keys" && <ApiKeysSettingsPage />}

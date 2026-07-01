@@ -397,6 +397,7 @@ export const enUS: Translations = {
       memory: "Memory",
       tools: "Tools",
       skills: "Skills",
+      mcp: "MCP",
       notification: "Notification",
       apiKeys: "API Keys",
       general: "General",

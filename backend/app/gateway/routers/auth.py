@@ -142,7 +142,7 @@ def _set_session_cookie(response: Response, token: str, request: Request) -> Non
         httponly=True,
         secure=is_https,
         samesite="lax",
-        max_age=config.token_expiry_days * 24 * 3600 if is_https else None,
+        max_age=config.token_expiry_days * 24 * 3600,
     )
 
 

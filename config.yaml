@@ -89,6 +89,56 @@ models:
       extra_body:
         thinking:
           type: disabled
+
+  # ── Mistral ─────────────────────────────────────────────────────────────────
+  - name: mistral-large
+    display_name: Mistral Large
+    use: langchain_mistralai:ChatMistralAI
+    model: mistral-large-latest
+    api_key: $MISTRAL_API_KEY
+    max_tokens: 8096
+    timeout: 60
+    max_retries: 3
+    supports_thinking: false
+    supports_vision: false
+
+  # ── OpenRouter — modèles gratuits ───────────────────────────────────────────
+  - name: openrouter-gemma-27b
+    display_name: Gemma 3 27B (Free)
+    use: langchain_openai:ChatOpenAI
+    model: google/gemma-3-27b-it:free
+    base_url: https://openrouter.ai/api/v1
+    api_key: $OPENROUTER_API_KEY
+    max_tokens: 8096
+    timeout: 120
+    max_retries: 2
+    supports_thinking: false
+    supports_vision: false
+
+  - name: openrouter-llama-4
+    display_name: Llama 4 Maverick (Free)
+    use: langchain_openai:ChatOpenAI
+    model: meta-llama/llama-4-maverick:free
+    base_url: https://openrouter.ai/api/v1
+    api_key: $OPENROUTER_API_KEY
+    max_tokens: 8096
+    timeout: 120
+    max_retries: 2
+    supports_thinking: false
+    supports_vision: false
+
+  - name: openrouter-qwen3
+    display_name: Qwen3 235B (Free)
+    use: langchain_openai:ChatOpenAI
+    model: qwen/qwen3-235b-a22b:free
+    base_url: https://openrouter.ai/api/v1
+    api_key: $OPENROUTER_API_KEY
+    max_tokens: 8096
+    timeout: 120
+    max_retries: 2
+    supports_thinking: true
+    supports_vision: false
+
 tool_groups:
   - name: web
   - name: file:read

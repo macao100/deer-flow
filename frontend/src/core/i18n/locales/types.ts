@@ -315,6 +315,7 @@ export interface Translations {
       memory: string;
       tools: string;
       skills: string;
+      mcp: string;
       notification: string;
       apiKeys: string;
       general: string;
