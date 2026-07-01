@@ -1,0 +1,260 @@
+# DeerFlow JE — config.yaml (édité via Config-LLM.html)
+# Redémarrez DeerFlow après modification.
+
+config_version: 14
+log_level: info
+token_usage:
+  enabled: true
+models:
+  # DeepSeek V4 Flash — usage courant (deepseek-chat alias → deepseek-v4-flash depuis 2026-07-24)
+  # Contexte : 1M tokens | max output : 384K | mode thinking : supporté via extra_body
+  - name: deepseek-v4-flash
+    display_name: DeepSeek V4 Flash
+    use: deerflow.models.patched_deepseek:PatchedChatDeepSeek
+    model: deepseek-v4-flash
+    timeout: 600
+    max_retries: 2
+    max_tokens: 16384
+    supports_thinking: true
+    supports_vision: true
+    api_key: $DEEPSEEK_API_KEY
+    # Tarifs DeepSeek V4 Flash (USD / 1M tokens, doc officielle 2026-06-15)
+    input_price_per_mtok: 0.14
+    output_price_per_mtok: 0.28
+    when_thinking_enabled:
+      extra_body:
+        thinking:
+          type: enabled
+    when_thinking_disabled:
+      extra_body:
+        thinking:
+          type: disabled
+    # Bascule automatique si quota épuisé ou erreur billing
+    fallback_chain:
+      - ollama-local
+
+  # DeepSeek V4 Pro — usage avancé (1.6T/49B actifs, 500 req concurrent)
+  # Contexte : 1M tokens | max output : 384K | thinking supporté
+  - name: deepseek-v4-pro
+    display_name: DeepSeek V4 Pro
+    use: deerflow.models.patched_deepseek:PatchedChatDeepSeek
+    model: deepseek-v4-pro
+    timeout: 600
+    max_retries: 2
+    max_tokens: 32768
+    supports_thinking: true
+    supports_vision: true
+    api_key: $DEEPSEEK_API_KEY
+    # Tarifs DeepSeek V4 Pro (USD / 1M tokens, doc officielle 2026-06-15)
+    input_price_per_mtok: 0.435
+    output_price_per_mtok: 0.87
+    when_thinking_enabled:
+      extra_body:
+        thinking:
+          type: enabled
+    when_thinking_disabled:
+      extra_body:
+        thinking:
+          type: disabled
+    fallback_chain:
+      - deepseek-v4-flash
+
+  # Ollama local — fallback hors-ligne (nécessite `ollama serve` et `ollama pull llama3.2`)
+  - name: ollama-local
+    display_name: Ollama Local (fallback)
+    use: langchain_ollama:ChatOllama
+    model: llama3.2
+    base_url: http://localhost:11434
+    supports_thinking: false
+    supports_vision: false
+
+  # DeepSeek V4 Flash — mode raisonnement (thinking activé)
+  - name: deepseek-v4-flash-thinking
+    display_name: DeepSeek V4 Flash (Thinking)
+    use: deerflow.models.patched_deepseek:PatchedChatDeepSeek
+    model: deepseek-v4-flash
+    api_key: $DEEPSEEK_API_KEY
+    timeout: 600
+    max_retries: 2
+    max_tokens: 16384
+    supports_thinking: true
+    supports_vision: false
+    input_price_per_mtok: 0.14
+    output_price_per_mtok: 0.28
+    when_thinking_enabled:
+      extra_body:
+        thinking:
+          type: enabled
+    when_thinking_disabled:
+      extra_body:
+        thinking:
+          type: disabled
+tool_groups:
+  - name: web
+  - name: file:read
+  - name: file:write
+  - name: bash
+  - name: knowledge
+tools:
+  - name: web_search
+    group: web
+    use: deerflow.community.ddg_search.tools:web_search_tool
+    max_results: 5
+  - name: web_fetch
+    group: web
+    use: deerflow.community.jina_ai.tools:web_fetch_tool
+    timeout: 10
+  - name: image_search
+    group: web
+    use: deerflow.community.image_search.tools:image_search_tool
+    max_results: 5
+  - name: ls
+    group: file:read
+    use: deerflow.sandbox.tools:ls_tool
+  - name: read_file
+    group: file:read
+    use: deerflow.sandbox.tools:read_file_tool
+  - name: glob
+    group: file:read
+    use: deerflow.sandbox.tools:glob_tool
+    max_results: 200
+  - name: grep
+    group: file:read
+    use: deerflow.sandbox.tools:grep_tool
+    max_results: 100
+  - name: write_file
+    group: file:write
+    use: deerflow.sandbox.tools:write_file_tool
+  - name: str_replace
+    group: file:write
+    use: deerflow.sandbox.tools:str_replace_tool
+  - name: bash
+    group: bash
+    use: deerflow.sandbox.tools:bash_tool
+  # ── Recherche sémantique sur documents locaux ─────────────────────────────
+  # Pré-requis : construire l'index une fois avant usage.
+  #   python -m deerflow.community.local_rag.indexer --source-dir "D:/00 IA-JE/docs"
+  - name: local_docs_search
+    group: knowledge
+    use: deerflow.community.local_rag.tools:local_docs_search_tool
+    source_dir: "D:/00 IA-JE/docs"
+    index_path: "D:/00 IA-JE/DEERFLOW JE/deer-flow/.deer-flow/data/local_rag.db"
+    embedding_model: nomic-embed-text
+    base_url: http://localhost:11434
+    k: 5
+tool_search:
+  enabled: false
+tool_output:
+  enabled: true
+  externalize_min_chars: 12000
+  preview_head_chars: 2000
+  preview_tail_chars: 1000
+  fallback_max_chars: 30000
+  fallback_head_chars: 8000
+  fallback_tail_chars: 3000
+  storage_subdir: .tool-results
+  exempt_tools:
+    - read_file
+    - read_file_tool
+loop_detection:
+  enabled: true
+  warn_threshold: 5
+  hard_limit: 8
+  window_size: 20
+  max_tracked_threads: 100
+  tool_freq_warn: 40
+  tool_freq_hard_limit: 60
+safety_finish_reason:
+  enabled: true
+uploads:
+  max_files: 10
+  max_file_size: 52428800
+  max_total_size: 104857600
+  auto_convert_documents: false
+  pdf_converter: auto
+sandbox:
+  use: deerflow.sandbox.local:LocalSandboxProvider
+  allow_host_bash: false
+  bash_output_max_chars: 20000
+  read_file_output_max_chars: 50000
+  ls_output_max_chars: 20000
+skills:
+  container_path: /mnt/skills
+title:
+  enabled: true
+  max_words: 6
+  max_chars: 60
+  model_name: null
+summarization:
+  enabled: true
+  model_name: null
+  trigger:
+    - type: tokens
+      value: 48000
+  keep:
+    type: messages
+    value: 10
+  trim_tokens_to_summarize: 15564
+  summary_prompt: null
+  preserve_recent_skill_count: 5
+  preserve_recent_skill_tokens: 25000
+  preserve_recent_skill_tokens_per_skill: 5000
+  skill_file_read_tool_names:
+    - read_file
+    - read
+    - view
+
+# ============================================================================
+# Canaux IM — Telegram (bot @Jeaneric_bot)
+# Credentials dans .env : TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_USERNAME (jamais committés)
+# Modifs startup-only → redémarrer DeerFlow après changement.
+# ============================================================================
+channels:
+  langgraph_url: http://localhost:8001/api
+  gateway_url: http://localhost:8001
+  session:
+    assistant_id: lead_agent
+    config:
+      recursion_limit: 100
+    context:
+      thinking_enabled: true
+      is_plan_mode: false
+      subagent_enabled: false
+  telegram:
+    enabled: true
+    bot_token: $TELEGRAM_BOT_TOKEN
+    allowed_users: []   # vide = tous ; restreindre par Telegram user ID si besoin
+
+channel_connections:
+  enabled: true
+  telegram:
+    enabled: true
+    bot_username: $TELEGRAM_BOT_USERNAME
+memory:
+  enabled: true
+  # Chemin absolu pour éviter la perte entre versions (opts out de la per-user isolation — OK usage solo JE).
+  # Relatif = {base_dir}/users/{user_id}/memory.json ; absolu = chemin fixe partagé tous utilisateurs.
+  storage_path: "D:/00 IA-JE/DEERFLOW JE/deer-flow/.deer-flow/memory.json"
+  debounce_seconds: 30
+  # Modèle dédié à l'extraction/mise à jour des facts (allège le modèle principal)
+  model_name: deepseek-v4-flash
+  max_facts: 200
+  fact_confidence_threshold: 0.7
+  injection_enabled: true
+  max_injection_tokens: 3000
+  token_counting: tiktoken
+agents_api:
+  enabled: true
+skill_evolution:
+  enabled: false
+database:
+  backend: sqlite
+  sqlite_dir: .deer-flow/data
+run_events:
+  # "db" = persistance SQLite via l'ORM — messages + traces survivent au redémarrage.
+  # "memory" (défaut) = tout est perdu au redémarrage du backend.
+  # "jsonl" = fichiers JSONL append-only (persistance légère, sans requêtes SQL).
+  # Restart-required (champ startup-only, voir reload_boundary.py).
+  backend: db
+  max_trace_content: 10240
+  track_token_usage: true
