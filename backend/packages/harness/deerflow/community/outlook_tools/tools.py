@@ -39,7 +39,7 @@ def _check_outlook_available() -> str | None:
 
 def _get_default_save_path() -> str:
     """Get user's Desktop as a safe default save location."""
-    return os.path.join(os.environ.get("USERPROFILE", "C:\"), "Desktop")
+    return os.path.join(os.environ.get("USERPROFILE", "C:\\"), "Desktop")
 
 
 @tool("send_outlook_email", parse_docstring=True)
@@ -189,7 +189,7 @@ def search_outlook_inbox_tool(
             filters.append("[UnRead] = True")
         if search_term:
             filters.append(
-                f"@SQL="urn:schemas:httpmail:subject" ci_startswith '{search_term}'"
+                f'@SQL="urn:schemas:httpmail:subject" ci_startswith \'{search_term}\''
             )
 
         if len(filters) == 1:
