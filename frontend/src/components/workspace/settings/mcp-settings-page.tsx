@@ -11,7 +11,7 @@ import {
   Trash2Icon,
   WrenchIcon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -41,14 +41,19 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/core/i18n/hooks";
-import { MCPConfigRequestError } from "@/core/mcp/api";
+import { MCPConfigRequestError, searchMCPCatalog } from "@/core/mcp/api";
 import {
   useAddMCPServer,
   useDeleteMCPServer,
   useEnableMCPServer,
   useMCPConfig,
 } from "@/core/mcp/hooks";
-import { MCP_CATALOG, type MCPCatalogEntry, type MCPServerConfig } from "@/core/mcp/types";
+import {
+  MCP_CATALOG,
+  type MCPCatalogEntry,
+  type MCPServerConfig,
+  type RegistryMCPServer,
+} from "@/core/mcp/types";
 import { env } from "@/env";
 
 import { SettingsSection } from "./settings-section";
@@ -102,20 +107,58 @@ export function MCPSettingsPage() {
     }
   };
 
-  const handleAddFromCatalog = async (entry: MCPCatalogEntry) => {
+  const handleAddFromCatalog = async (entry: MCPCatalogEntry | RegistryMCPServer) => {
     try {
-      const slug = entry.name.toLowerCase().replace(/\s+/g, "-");
-      const newServer: MCPServerConfig = {
-        enabled: true,
-        type: "stdio",
-        command: entry.command,
-        args: entry.args,
-        env: entry.env,
-        headers: {},
-        description: entry.description,
-      };
-      await addServer({ name: slug, server: newServer });
-      toast.success(`MCP "${entry.name}" ajouté et activé.`);
+      let name: string;
+      let newServer: MCPServerConfig;
+
+      if ("source" in entry) {
+        // Registry entry
+        name = entry.name;
+        if (entry.transport_type === "stdio" && entry.command) {
+          newServer = {
+            enabled: true,
+            type: "stdio",
+            command: entry.command,
+            args: entry.args,
+            env: entry.env,
+            headers: {},
+            description: entry.description,
+          };
+        } else if (entry.url) {
+          newServer = {
+            enabled: true,
+            type: entry.transport_type === "sse" ? "sse" : "http",
+            command: null,
+            args: [],
+            env: entry.env,
+            url: entry.url,
+            headers: {},
+            description: entry.description,
+          };
+        } else {
+          toast.error("Impossible d'installer ce serveur : aucune commande ni URL.");
+          return;
+        }
+      } else {
+        // Local catalog entry
+        name = entry.name.toLowerCase().replace(/\s+/g, "-");
+        newServer = {
+          enabled: true,
+          type: "stdio",
+          command: entry.command,
+          args: entry.args,
+          env: entry.env,
+          headers: {},
+          description: entry.description,
+        };
+      }
+
+      await addServer({ name, server: newServer });
+      const displayName = "source" in entry
+        ? (entry as RegistryMCPServer).title || (entry as RegistryMCPServer).name
+        : (entry as MCPCatalogEntry).name;
+      toast.success(`MCP "${displayName}" ajouté et activé.`);
       setCatalogOpen(false);
     } catch (e) {
       toast.error("Erreur", { description: String(e) });
@@ -225,15 +268,43 @@ function MCPServerCatalog({
   onInstall,
 }: {
   installed: Set<string>;
-  onInstall: (entry: MCPCatalogEntry) => void;
+  onInstall: (entry: MCPCatalogEntry | RegistryMCPServer) => void;
 }) {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
   const [installing, setInstalling] = useState<string | null>(null);
+  const [registryResults, setRegistryResults] = useState<RegistryMCPServer[]>([]);
+  const [registryLoading, setRegistryLoading] = useState(false);
 
-  const filtered = useMemo(() => {
+  // ── Recherche registre (debounced) ──────────────────────────────────
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => {
+    if (search.length < 2) {
+      setRegistryResults([]);
+      setRegistryLoading(false);
+      return;
+    }
+    setRegistryLoading(true);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await searchMCPCatalog(search, "", 15);
+        setRegistryResults(res.servers);
+      } catch {
+        setRegistryResults([]);
+      } finally {
+        setRegistryLoading(false);
+      }
+    }, 400);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [search]);
+
+  // ── Filtrage local ─────────────────────────────────────────────────
+  const localFiltered = useMemo(() => {
     return MCP_CATALOG.filter((entry) => {
-      const name = entry.name.toLowerCase().replace(/\s+/g, "-");
       const matchCat = category === "all" || entry.category === category;
       const matchSearch =
         !search ||
@@ -243,14 +314,39 @@ function MCPServerCatalog({
     });
   }, [search, category]);
 
-  const handleInstall = async (entry: MCPCatalogEntry) => {
-    const slug = entry.name.toLowerCase().replace(/\s+/g, "-");
-    setInstalling(slug);
+  // ── Merge local + registre ──────────────────────────────────────────
+  const merged = useMemo(() => {
+    if (!search || search.length < 2) {
+      return localFiltered.map((e) => ({ ...e, _type: "local" as const }));
+    }
+    const regNames = new Set(registryResults.map((r) => r.name));
+    const local = localFiltered
+      .filter((e) => !regNames.has(e.name))
+      .map((e) => ({ ...e, _type: "local" as const }));
+    const reg = registryResults
+      .filter((r) => {
+        const matchCat = category === "all" || r.category === category;
+        return matchCat;
+      })
+      .map((r) => ({ ...r, _type: "registry" as const }));
+    return [...local, ...reg];
+  }, [localFiltered, registryResults, search, category]);
+
+  const handleInstall = async (entry: MCPCatalogEntry | RegistryMCPServer) => {
+    const key = "source" in entry ? entry.name : entry.name.toLowerCase().replace(/\s+/g, "-");
+    setInstalling(key);
     try {
       await onInstall(entry);
     } finally {
       setInstalling(null);
     }
+  };
+
+  const isInstalled = (entry: MCPCatalogEntry | RegistryMCPServer): boolean => {
+    if ("source" in entry) {
+      return installed.has(entry.name);
+    }
+    return installed.has(entry.name.toLowerCase().replace(/\s+/g, "-"));
   };
 
   return (
@@ -261,7 +357,7 @@ function MCPServerCatalog({
           <SearchIcon className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
           <Input
             className="h-8 pl-8 text-sm"
-            placeholder="Rechercher un MCP..."
+            placeholder="Rechercher un MCP (local + registre officiel)..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -281,27 +377,73 @@ function MCPServerCatalog({
         </Select>
       </div>
 
+      {/* Indicateur registre */}
+      {search.length >= 2 && registryLoading && (
+        <div className="text-muted-foreground text-xs flex items-center gap-2">
+          <Loader2Icon className="size-3 animate-spin" />
+          Recherche dans le registre officiel...
+        </div>
+      )}
+      {search.length >= 2 && !registryLoading && (
+        <div className="text-muted-foreground text-xs">
+          {registryResults.length} résultat(s) du registre officiel
+          {localFiltered.length > 0 && ` + ${localFiltered.length} local(aux)`}
+        </div>
+      )}
+
       {/* Liste */}
       <div className="overflow-y-auto max-h-[55vh] space-y-2">
-        {filtered.length === 0 && (
+        {merged.length === 0 && !registryLoading && (
           <div className="text-muted-foreground text-sm text-center py-8">
             Aucun MCP trouvé.
           </div>
         )}
-        {filtered.map((entry) => {
-          const slug = entry.name.toLowerCase().replace(/\s+/g, "-");
-          const alreadyInstalled = installed.has(slug);
+        {merged.map((entry: MCPCatalogEntry & { _type: string } | RegistryMCPServer & { _type: string }) => {
+          const slug = "_type" in entry && entry._type === "registry"
+            ? (entry as RegistryMCPServer).name
+            : (entry as MCPCatalogEntry).name.toLowerCase().replace(/\s+/g, "-");
+          const alreadyInstalled = isInstalled(entry);
+          const isRegistry = "_type" in entry && entry._type === "registry";
+          const regEntry = isRegistry ? (entry as RegistryMCPServer) : null;
+          const localEntry = !isRegistry ? (entry as MCPCatalogEntry) : null;
+
+          const displayName = isRegistry && regEntry
+            ? (regEntry.title || regEntry.name)
+            : (localEntry?.name ?? "");
+          const description = isRegistry && regEntry
+            ? regEntry.description
+            : (localEntry?.description ?? "");
+          const categoryVal = isRegistry && regEntry
+            ? regEntry.category
+            : (localEntry?.category ?? "dev");
+          const commandStr = isRegistry && regEntry
+            ? (regEntry.command ? `${regEntry.command} ${regEntry.args.join(" ")}` : (regEntry.url ?? "Aucune commande"))
+            : `${localEntry?.command ?? ""} ${localEntry?.args?.join(" ") ?? ""}`.trim();
+          const transportLabel = isRegistry && regEntry
+            ? (regEntry.transport_type === "stdio" ? "stdio" : regEntry.transport_type)
+            : "stdio";
+
           return (
             <div
-              key={entry.name}
+              key={isRegistry && regEntry ? `reg-${regEntry.name}` : `local-${(entry as MCPCatalogEntry).name}`}
               className="border rounded-lg p-3 flex items-start gap-3 hover:bg-muted/30 transition-colors"
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-sm">{entry.name}</span>
-                  <Badge variant="outline" className="text-xs gap-1">
-                    {CATEGORY_ICONS[entry.category]}
-                    {CATEGORY_LABELS[entry.category] ?? entry.category}
+                  <span className="font-medium text-sm">{displayName}</span>
+                  {isRegistry ? (
+                    <Badge variant="outline" className="text-xs gap-1 border-blue-300 text-blue-600">
+                      <GlobeIcon className="size-3" />
+                      Registry
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-xs gap-1">
+                      {CATEGORY_ICONS[categoryVal]}
+                      {CATEGORY_LABELS[categoryVal] ?? categoryVal}
+                    </Badge>
+                  )}
+                  <Badge variant="outline" className="text-xs">
+                    {transportLabel}
                   </Badge>
                   {alreadyInstalled && (
                     <Badge variant="outline" className="text-xs text-green-600 border-green-300">
@@ -311,11 +453,14 @@ function MCPServerCatalog({
                   )}
                 </div>
                 <p className="text-muted-foreground text-xs mt-1 line-clamp-2">
-                  {entry.description}
+                  {description}
                 </p>
                 <code className="text-muted-foreground text-[10px] mt-1 block truncate">
-                  {entry.command} {entry.args.join(" ")}
+                  {commandStr}
                 </code>
+                {isRegistry && regEntry?.version && (
+                  <span className="text-muted-foreground text-[10px]">v{regEntry.version}</span>
+                )}
               </div>
               <Button
                 size="sm"

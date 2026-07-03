@@ -4,7 +4,8 @@ import os
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request, status
+import httpx
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from deerflow.config.extensions_config import ExtensionsConfig, get_extensions_config, reload_extensions_config
@@ -66,6 +67,121 @@ class McpConfigUpdateRequest(BaseModel):
     mcp_servers: dict[str, McpServerConfigResponse] = Field(
         ...,
         description="Map of MCP server name to configuration",
+    )
+
+
+# ── Registry Catalog Models ──────────────────────────────────────────────
+
+_MCP_REGISTRY_BASE = "https://registry.modelcontextprotocol.io"
+
+
+class RegistryMCPServerResponse(BaseModel):
+    """Transformed MCP server entry from the official registry."""
+
+    name: str = Field(..., description="Unique server identifier (e.g. 'anthropic/server-github')")
+    title: str = Field(..., description="Human-readable title")
+    description: str = Field("", description="Server description")
+    version: str = Field("", description="Latest version")
+    command: str | None = Field(None, description="Command for stdio transport (npx/uvx), None if hosted")
+    args: list[str] = Field(default_factory=list, description="Arguments for the command")
+    env: dict[str, str] = Field(default_factory=dict, description="Environment variables with $VAR placeholders")
+    url: str | None = Field(None, description="Remote URL for HTTP/SSE transports")
+    transport_type: str = Field("stdio", description="Transport type: stdio, streamable-http, or sse")
+    website_url: str | None = Field(None, description="Project website URL")
+    repository: str | None = Field(None, description="Source repository URL")
+    category: str = Field("dev", description="Inferred category: dev, data, search, productivity, communication")
+    source: str = Field("registry", description="Source of this entry (always 'registry')")
+
+
+class RegistrySearchResponse(BaseModel):
+    """Response model for MCP registry catalog search."""
+
+    servers: list[RegistryMCPServerResponse] = Field(default_factory=list)
+    next_cursor: str | None = Field(None, description="Cursor for next page, None if last page")
+    count: int = Field(0, description="Number of results in this page")
+
+
+# ── Category Inference ───────────────────────────────────────────────────
+
+_CATEGORY_KEYWORDS: dict[str, list[str]] = {
+    "data": ["database", "postgres", "mysql", "sqlite", "redis", "mongodb", "duckdb", "vector", "qdrant", "milvus", "weaviate", "pinecone", "supabase", "firebase", "bigquery", "snowflake"],
+    "search": ["search", "brave", "tavily", "exa", "serp", "google", "scrape", "fetch", "crawl", "firecrawl", "jina", "browser", "puppeteer", "playwright"],
+    "communication": ["slack", "discord", "telegram", "teams", "whatsapp", "messenger", "email", "gmail", "outlook", "sendgrid", "twilio", "notifier"],
+    "productivity": ["notion", "jira", "trello", "asana", "linear", "confluence", "airtable", "google", "calendar", "gcal", "docs", "sheets", "todo", "task"],
+    "dev": ["github", "gitlab", "bitbucket", "git", "filesystem", "docker", "kubernetes", "aws", "cloudflare", "vercel", "netlify", "terraform", "sentry", "datadog", "prometheus", "cli", "terminal", "shell", "npm", "pypi", "package"],
+}
+
+
+def _infer_category(name: str, description: str) -> str:
+    """Infer a category from server name and description keywords."""
+    combined = f"{name} {description}".lower()
+    for category, keywords in _CATEGORY_KEYWORDS.items():
+        for kw in keywords:
+            if kw in combined:
+                return category
+    return "dev"
+
+
+# ── Registry Transformation ──────────────────────────────────────────────
+
+def _transform_registry_server(entry: dict) -> RegistryMCPServerResponse:
+    """Transform a raw registry server entry into the DeerFlow format."""
+    server = entry.get("server", entry)
+    name = server.get("name", "")
+    description = server.get("description", "")
+    title = server.get("title", name.rsplit("/", 1)[-1] if "/" in name else name)
+    version = server.get("version", "")
+    packages: list[dict] = server.get("packages", [])
+    remotes: list[dict] = server.get("remotes", [])
+    repository_raw = server.get("repository", {})
+    repository = repository_raw.get("url", "") if isinstance(repository_raw, dict) else str(repository_raw) if repository_raw else None
+    website_url = server.get("websiteUrl")
+
+    command: str | None = None
+    args: list[str] = []
+    env: dict[str, str] = {}
+    url: str | None = None
+    transport_type: str = "stdio"
+
+    if remotes:
+        first_remote = remotes[0]
+        transport_type = first_remote.get("type", "streamable-http")
+        url = first_remote.get("url")
+
+    if packages:
+        for pkg in packages:
+            registry_type = pkg.get("registryType", "npm")
+            identifier = pkg.get("identifier", "")
+            pkg_env_vars: list[dict] = pkg.get("environmentVariables", [])
+            if identifier:
+                if not command:
+                    if registry_type == "npm":
+                        command = "npx"
+                        args = ["-y", identifier]
+                    elif registry_type == "pypi":
+                        command = "uvx"
+                        args = [identifier]
+                for ev in pkg_env_vars:
+                    ev_name = ev.get("name", "")
+                    if ev_name:
+                        env[ev_name] = f"${ev_name}"
+
+    category = _infer_category(name, description)
+
+    return RegistryMCPServerResponse(
+        name=name,
+        title=title,
+        description=description,
+        version=version,
+        command=command,
+        args=args,
+        env=env,
+        url=url,
+        transport_type=transport_type,
+        website_url=website_url,
+        repository=repository,
+        category=category,
+        source="registry",
     )
 
 
@@ -231,6 +347,66 @@ def _merge_preserving_secrets(
             "headers": merged_headers,
             "oauth": merged_oauth,
         }
+    )
+
+
+@router.get(
+    "/mcp/catalog/search",
+    response_model=RegistrySearchResponse,
+    summary="Search MCP Registry Catalog",
+    description="Search the official MCP Registry at registry.modelcontextprotocol.io for available servers. Results are merged with the local catalog.",
+)
+async def search_mcp_catalog(
+    q: str = Query("", description="Search query (matches name, title, description)"),
+    cursor: str = Query("", description="Pagination cursor from previous response"),
+    count: int = Query(30, ge=1, le=100, description="Number of results per page"),
+) -> RegistrySearchResponse:
+    """Proxy and transform results from the Official MCP Registry.
+
+    This endpoint is public (no admin required) — it only reads from the
+    public registry and the local hardcoded catalog.
+    """
+    servers: list[RegistryMCPServerResponse] = []
+    next_cursor: str | None = None
+
+    # ── Fetch from Official MCP Registry ───────────────────────────────
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            params: dict[str, str | int] = {"count": min(count, 100)}
+            if cursor:
+                params["cursor"] = cursor
+
+            reg_response = await client.get(
+                f"{_MCP_REGISTRY_BASE}/v0/servers",
+                params=params,
+            )
+
+            if reg_response.status_code == 200:
+                reg_data = reg_response.json()
+                raw_servers: list[dict] = reg_data.get("servers", [])
+                metadata: dict = reg_data.get("metadata", {})
+
+                for entry in raw_servers:
+                    server = _transform_registry_server(entry)
+                    if not q or (
+                        q.lower() in server.name.lower()
+                        or q.lower() in server.title.lower()
+                        or q.lower() in server.description.lower()
+                    ):
+                        servers.append(server)
+
+                next_cursor = metadata.get("nextCursor")
+            else:
+                logger.warning(f"MCP Registry returned {reg_response.status_code}")
+    except httpx.RequestError as exc:
+        logger.warning(f"Failed to reach MCP Registry: {exc}")
+    except Exception as exc:
+        logger.error(f"Unexpected error fetching MCP Registry: {exc}", exc_info=True)
+
+    return RegistrySearchResponse(
+        servers=servers[:count],
+        next_cursor=next_cursor,
+        count=len(servers[:count]),
     )
 
 

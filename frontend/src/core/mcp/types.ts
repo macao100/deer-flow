@@ -42,6 +42,32 @@ export interface MCPCatalogEntry {
   category: "dev" | "data" | "search" | "productivity" | "communication";
 }
 
+// ── Catalogue du Registre MCP Officiel ──────────────────────────────────
+
+export interface RegistryMCPServer {
+  name: string;
+  title: string;
+  description: string;
+  version: string;
+  command: string | null;
+  args: string[];
+  env: Record<string, string>;
+  url: string | null;
+  transport_type: "stdio" | "streamable-http" | "sse";
+  website_url: string | null;
+  repository: string | null;
+  category: "dev" | "data" | "search" | "productivity" | "communication";
+  source: "registry" | "local";
+}
+
+export interface RegistrySearchResponse {
+  servers: RegistryMCPServer[];
+  next_cursor: string | null;
+  count: number;
+}
+
+// ── Catalogue local (intégré) ──────────────────────────────────────────
+
 export const MCP_CATALOG: MCPCatalogEntry[] = [
   {
     name: "GitHub",

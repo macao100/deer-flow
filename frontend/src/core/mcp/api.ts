@@ -1,7 +1,7 @@
 import { fetch } from "@/core/api/fetcher";
 import { getBackendBaseURL } from "@/core/config";
 
-import type { MCPConfig } from "./types";
+import type { MCPConfig, RegistrySearchResponse } from "./types";
 
 export class MCPConfigRequestError extends Error {
   readonly status: number;
@@ -34,6 +34,27 @@ export async function loadMCPConfig() {
     );
   }
   return response.json() as Promise<MCPConfig>;
+}
+
+export async function searchMCPCatalog(
+  q: string = "",
+  cursor: string = "",
+  count: number = 30,
+): Promise<RegistrySearchResponse> {
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  if (cursor) params.set("cursor", cursor);
+  params.set("count", String(count));
+
+  const response = await fetch(
+    `${getBackendBaseURL()}/api/mcp/catalog/search?${params}`,
+  );
+  if (!response.ok) {
+    throw new Error(
+      `Catalog search failed: ${response.status} ${response.statusText}`,
+    );
+  }
+  return response.json() as Promise<RegistrySearchResponse>;
 }
 
 export async function updateMCPConfig(config: MCPConfig) {
