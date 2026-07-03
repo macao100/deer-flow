@@ -1,4 +1,4 @@
-# DeerFlow JE — config.yaml (édité via Config-LLM.html)
+﻿# DeerFlow JE — config.yaml (édité via Config-LLM.html)
 # Redémarrez DeerFlow après modification.
 
 config_version: 14
@@ -145,6 +145,9 @@ tool_groups:
   - name: file:write
   - name: bash
   - name: knowledge
+  - name: office:word
+  - name: office:excel
+  - name: office:outlook
 tools:
   - name: web_search
     group: web
@@ -199,6 +202,36 @@ tools:
     embedding_model: nomic-embed-text
     base_url: http://localhost:11434
     k: 5
+
+  # Office Word (python-docx)
+  - name: read_word_document
+    group: office:word
+    use: deerflow.community.word_tools.tools:read_word_document_tool
+  - name: create_word_document
+    group: office:word
+    use: deerflow.community.word_tools.tools:create_word_document_tool
+
+  # Office Excel (openpyxl)
+  - name: read_excel_range
+    group: office:excel
+    use: deerflow.community.excel_tools.tools:read_excel_range_tool
+  - name: write_excel_range
+    group: office:excel
+    use: deerflow.community.excel_tools.tools:write_excel_range_tool
+  - name: list_excel_sheets
+    group: office:excel
+    use: deerflow.community.excel_tools.tools:list_excel_sheets_tool
+
+  # Office Outlook (pywin32 COM)
+  - name: send_outlook_email
+    group: office:outlook
+    use: deerflow.community.outlook_tools.tools:send_outlook_email_tool
+  - name: search_outlook_inbox
+    group: office:outlook
+    use: deerflow.community.outlook_tools.tools:search_outlook_inbox_tool
+  - name: list_outlook_folders
+    group: office:outlook
+    use: deerflow.community.outlook_tools.tools:list_outlook_folders_tool
 tool_search:
   enabled: false
 tool_output:
@@ -231,25 +264,25 @@ uploads:
   pdf_converter: auto
 sandbox:
   use: deerflow.sandbox.local:LocalSandboxProvider
-  allow_host_bash: false
+  allow_host_bash: true
   mounts:
     # Accès complet au dossier de projets JE
     - host_path: D:\00 IA-JE
-      container_path: /mnt/projects
+      container_path: D:/00 IA-JE
       read_only: false
     # Accès au bureau Windows
     - host_path: C:\Users\JE\Desktop
-      container_path: /mnt/desktop
+      container_path: C:/Users/JE/Desktop
       read_only: false
     # Accès aux documents
     - host_path: C:\Users\JE\Documents
-      container_path: /mnt/documents
+      container_path: C:/Users/JE/Documents
       read_only: false
   bash_output_max_chars: 20000
   read_file_output_max_chars: 50000
   ls_output_max_chars: 20000
 skills:
-  container_path: /mnt/skills
+  container_path: D:/00 IA-JE/DEERFLOW JE/deer-flow/skills
 title:
   enabled: true
   max_words: 6

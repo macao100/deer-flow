@@ -48,6 +48,8 @@ postgres = [
     "psycopg-pool>=3.3.0",
 ]
 pymupdf = ["pymupdf4llm>=0.0.17"]
+office = ["python-docx>=1.2.0", "openpyxl>=3.1.5", "pywin32>=312"]
+mcp-server = ["mcp>=1.28.0"]
 
 [build-system]
 requires = ["hatchling"]
