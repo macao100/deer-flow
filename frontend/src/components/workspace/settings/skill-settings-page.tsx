@@ -3,9 +3,8 @@
 import {
   AlertTriangleIcon,
   CheckCircleIcon,
-  CodeIcon,
-  EyeIcon,
-  FileTextIcon,
+  DownloadIcon,
+  GlobeIcon,
   LightbulbIcon,
   Loader2Icon,
   PencilIcon,
@@ -23,6 +22,19 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -108,6 +120,7 @@ export function SkillSettingsPage({ onClose }: { onClose?: () => void }) {
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
@@ -159,7 +172,8 @@ export function SkillSettingsPage({ onClose }: { onClose?: () => void }) {
   }
 
   return (
-    <SettingsSection title={t.settings.skills.title} description={t.settings.skills.description}>
+    <>
+      <SettingsSection title={t.settings.skills.title} description={t.settings.skills.description}>
       <div className="flex flex-col gap-4">
         {/* ── Toolbar ─────────────────────────────────────────────── */}
         <header className="flex justify-between gap-3 flex-wrap">
@@ -182,14 +196,28 @@ export function SkillSettingsPage({ onClose }: { onClose?: () => void }) {
             </Tabs>
           </div>
           <div className="flex gap-2">
-            <Button size="sm" onClick={() => setShowCreate(true)}>
-              <PlusIcon className="size-4 mr-1" />
-              Créer un skill
-            </Button>
-            <Button size="sm" variant="outline" onClick={handleCreateSkill}>
-              <SparklesIcon className="size-4 mr-1" />
-              {t.settings.skills.createSkill}
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm">
+                  <PlusIcon className="size-4 mr-1" />
+                  Ajouter un skill
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem onClick={() => setShowCreate(true)}>
+                  <PencilIcon className="size-4 mr-2" />
+                  Créer manuellement
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleCreateSkill}>
+                  <SparklesIcon className="size-4 mr-2" />
+                  Créer avec l&apos;IA
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCatalogOpen(true)}>
+                  <GlobeIcon className="size-4 mr-2" />
+                  Catalogue en ligne
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
 
@@ -286,6 +314,20 @@ export function SkillSettingsPage({ onClose }: { onClose?: () => void }) {
         )}
       </div>
     </SettingsSection>
+
+    {/* ── Dialogue catalogue en ligne ──────────────────────────── */}
+    <Dialog open={catalogOpen} onOpenChange={setCatalogOpen}>
+      <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle>Catalogue de skills</DialogTitle>
+          <DialogDescription>
+            Parcourez les skills disponibles. Vous pourrez bientôt les installer en un clic depuis des repos en ligne.
+          </DialogDescription>
+        </DialogHeader>
+        <SkillCatalog onClose={() => setCatalogOpen(false)} />
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 
