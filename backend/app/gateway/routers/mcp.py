@@ -547,3 +547,153 @@ async def update_mcp_configuration(request: Request, body: McpConfigUpdateReques
     except Exception as e:
         logger.error(f"Failed to update MCP configuration: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to update MCP configuration: {str(e)}")
+
+
+# ── Security Scan ───────────────────────────────────────────────────────────
+
+_SUSPICIOUS_COMMANDS = frozenset({
+    "rm", "shred", "dd", "mkfs", "format",
+    "curl", "wget", "nc", "netcat", "telnet",
+    "chmod", "chown", "sudo", "su",
+    "kill", "pkill", "taskkill",
+    "shutdown", "reboot", "halt",
+    "scp", "rsync", "ftp",
+})
+
+_SUSPICIOUS_ARGS_PATTERNS = [
+    (";", "Shell command separator (;)"),
+    ("&&", "Shell AND operator (&&)"),
+    ("||", "Shell OR operator (||)"),
+    ("|", "Shell pipe"),
+    ("`", "Shell command substitution (backtick)"),
+    ("$(", "Shell command substitution $()"),
+    ("${", "Shell variable substitution"),
+    (">", "Shell redirect"),
+    ("/etc/passwd", "Access to system passwd file"),
+    ("/etc/shadow", "Access to system shadow file"),
+    ("/root/", "Access to root directory"),
+    ("~/.ssh", "Access to SSH keys"),
+]
+
+_SUSPICIOUS_ENV_PATTERNS = [
+    ("HOME", "Exfiltrating HOME directory path"),
+    ("USERPROFILE", "Exfiltrating USERPROFILE path"),
+    ("PATH", "Modifying system PATH"),
+    ("LD_PRELOAD", "LD_PRELOAD injection"),
+    ("DYLD_INSERT", "macOS dyld injection"),
+    ("API_KEY", "Potential API key in environment"),
+    ("TOKEN", "Potential token in environment"),
+    ("SECRET", "Potential secret in environment"),
+    ("PASSWORD", "Potential password in environment"),
+    ("CREDENTIAL", "Potential credential in environment"),
+]
+
+
+class MCPSecurityScanResult(BaseModel):
+    """Result of MCP server security scan."""
+
+    decision: Literal["allow", "warn", "block"] = Field(..., description="Security decision")
+    reasons: list[str] = Field(default_factory=list, description="Human-readable security findings")
+    score: int = Field(default=100, description="Security score 0-100, higher is safer")
+
+
+@router.post("/mcp/scan", response_model=MCPSecurityScanResult)
+async def scan_mcp_server(server: McpServerConfigResponse) -> MCPSecurityScanResult:
+    """Scan an MCP server definition for security issues before installation.
+
+    Checks command, args, env, and URL for suspicious patterns that could
+    indicate a malicious or dangerous MCP server.
+    """
+    reasons: list[str] = []
+    score = 100
+
+    # ── Command checks ──────────────────────────────────────────────────
+    command = (server.command or "").strip()
+    if command:
+        cmd_lower = command.lower()
+        cmd_name = command.split()[0] if command else ""
+        cmd_base = cmd_name.split("/")[-1].split("\\")[-1]
+
+        # Check for known suspicious commands
+        if cmd_base in _SUSPICIOUS_COMMANDS:
+            reasons.append(f"Commande dangereuse détectée: '{cmd_base}' est une commande système sensible")
+            score = max(0, score - 50)
+
+        # Check for absolute paths vs safe package runners
+        if command.startswith("/") or command.startswith("\\") or command.startswith("C:"):
+            reasons.append("Chemin absolu détecté — préférer npx/uvx ou un binaire dans le PATH")
+            score = max(0, score - 20)
+
+        # Check for path traversal
+        if ".." in command:
+            reasons.append("Path traversal (..) détecté dans la commande")
+            score = max(0, score - 40)
+
+        # Only allow known safe package runners for stdio
+        if server.type == "stdio" and cmd_base not in {"npx", "uvx", "node", "python", "python3", "pip", "pip3"}:
+            reasons.append(f"Commande non standard pour stdio: '{cmd_base}' — préférer npx ou uvx")
+            score = max(0, score - 10)
+
+    # ── Args checks ─────────────────────────────────────────────────────
+    for arg in server.args or []:
+        for pattern, description in _SUSPICIOUS_ARGS_PATTERNS:
+            if pattern in arg and description not in reasons:
+                reasons.append(f"Motif suspect dans les arguments: {description}")
+                score = max(0, score - 25)
+                break
+
+    # ── Env checks ─────────────────────────────────────────────────────
+    if server.env:
+        suspicious_env_keys = []
+        for key in server.env:
+            key_upper = key.upper()
+            for pattern, description in _SUSPICIOUS_ENV_PATTERNS:
+                if pattern in key_upper:
+                    suspicious_env_keys.append(key)
+                    if description not in reasons:
+                        reasons.append(f"Variable d'environnement suspecte: {key} — {description}")
+                        score = max(0, score - 20)
+                    break
+
+        # Check if env values look like they try to exfiltrate real env vars
+        for key, value in server.env.items():
+            if isinstance(value, str) and value.startswith("$"):
+                # Placeholder like $API_KEY is fine
+                pass
+            elif isinstance(value, str) and (".." in value or "/etc/" in value or "C:\\" in value):
+                reasons.append(f"Valeur suspecte dans env '{key}': contient un chemin système")
+                score = max(0, score - 25)
+
+    # ── URL checks ─────────────────────────────────────────────────────
+    url = (server.url or "").strip()
+    if url:
+        url_lower = url.lower()
+        if not url_lower.startswith("https://"):
+            if url_lower.startswith("http://"):
+                reasons.append("URL en HTTP (non sécurisé) — préférer HTTPS")
+                score = max(0, score - 25)
+            else:
+                reasons.append("URL sans protocole reconnu")
+                score = max(0, score - 30)
+
+        # Check for raw IP addresses (more suspicious than domain names)
+        import re
+        ip_pattern = r"https?://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+        if re.search(ip_pattern, url_lower):
+            reasons.append("URL avec adresse IP directe — préférer un nom de domaine")
+            score = max(0, score - 15)
+
+        # Check for localhost
+        if "localhost" in url_lower or "127.0.0.1" in url_lower or "[::1]" in url_lower:
+            reasons.append("URL pointe vers localhost — le serveur ne sera accessible que localement")
+            score = max(0, score - 5)
+
+    # ── Decision ────────────────────────────────────────────────────────
+    if score <= 30:
+        decision = "block"
+    elif score <= 60:
+        decision = "warn"
+    else:
+        decision = "allow"
+
+    return MCPSecurityScanResult(decision=decision, reasons=reasons, score=score)

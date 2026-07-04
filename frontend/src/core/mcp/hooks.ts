@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { loadMCPConfig, MCPConfigRequestError, updateMCPConfig } from "./api";
+import { loadMCPConfig, MCPConfigRequestError, scanMCPServer, updateMCPConfig } from "./api";
 import type { MCPConfig, MCPServerConfig } from "./types";
 
 export function useMCPConfig() {
@@ -84,6 +84,14 @@ export function useDeleteMCPServer() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["mcpConfig"] });
+    },
+  });
+}
+
+export function useScanMCP() {
+  return useMutation({
+    mutationFn: async (server: MCPServerConfig) => {
+      return scanMCPServer(server);
     },
   });
 }

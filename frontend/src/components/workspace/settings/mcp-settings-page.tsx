@@ -1,13 +1,16 @@
 "use client";
 
 import {
+  AlertTriangleIcon,
   CableIcon,
+  CheckCircleIcon,
   CheckIcon,
   GlobeIcon,
   Loader2Icon,
   PlusIcon,
   SearchIcon,
   ServerIcon,
+  ShieldAlertIcon,
   Trash2Icon,
   WrenchIcon,
 } from "lucide-react";
@@ -41,7 +44,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/core/i18n/hooks";
-import { MCPConfigRequestError, searchMCPCatalog } from "@/core/mcp/api";
+import { MCPConfigRequestError, scanMCPServer, searchMCPCatalog } from "@/core/mcp/api";
 import {
   useAddMCPServer,
   useDeleteMCPServer,
@@ -51,6 +54,7 @@ import {
 import {
   MCP_CATALOG,
   type MCPCatalogEntry,
+  type MCPSecurityScanResult,
   type MCPServerConfig,
   type RegistryMCPServer,
 } from "@/core/mcp/types";
@@ -84,6 +88,12 @@ export function MCPSettingsPage() {
   const { mutateAsync: deleteServer } = useDeleteMCPServer();
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanResult, setScanResult] = useState<MCPSecurityScanResult | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [pendingEntry, setPendingEntry] = useState<MCPCatalogEntry | RegistryMCPServer | null>(null);
+  const [pendingServer, setPendingServer] = useState<MCPServerConfig | null>(null);
+  const [pendingName, setPendingName] = useState("");
 
   const adminRequired =
     error instanceof MCPConfigRequestError && error.isAdminRequired;
@@ -154,12 +164,38 @@ export function MCPSettingsPage() {
         };
       }
 
-      await addServer({ name, server: newServer });
+      // ── Security scan before install ──────────────────────────────
+      setPendingEntry(entry);
+      setPendingServer(newServer);
+      setPendingName(name);
+      setScanning(true);
+      setScanResult(null);
+      setScanOpen(true);
+
+      const result = await scanMCPServer(newServer);
+      setScanResult(result);
+    } catch (e) {
+      toast.error("Erreur", { description: String(e) });
+      setScanOpen(false);
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleConfirmInstall = async () => {
+    if (!pendingServer || !pendingName || !pendingEntry) return;
+    try {
+      await addServer({ name: pendingName, server: pendingServer });
+      const entry = pendingEntry;
       const displayName = "source" in entry
         ? (entry as RegistryMCPServer).title || (entry as RegistryMCPServer).name
         : (entry as MCPCatalogEntry).name;
       toast.success(`MCP "${displayName}" ajouté et activé.`);
+      setScanOpen(false);
       setCatalogOpen(false);
+      setPendingEntry(null);
+      setPendingServer(null);
+      setScanResult(null);
     } catch (e) {
       toast.error("Erreur", { description: String(e) });
     }
@@ -253,6 +289,98 @@ export function MCPSettingsPage() {
                 installed={new Set(servers.map(([n]) => n))}
                 onInstall={handleAddFromCatalog}
               />
+            </DialogContent>
+          </Dialog>
+
+          {/* ── Dialogue scan de sécurité ─────────────────────────── */}
+          <Dialog open={scanOpen} onOpenChange={(open) => { if (!scanning) setScanOpen(open); }}>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <ShieldAlertIcon className="size-5" />
+                  Scan de sécurité
+                </DialogTitle>
+                <DialogDescription>
+                  {pendingEntry && (
+                    <>Analyse de sécurité pour <strong>{"source" in pendingEntry ? (pendingEntry as RegistryMCPServer).title || pendingEntry.name : pendingEntry.name}</strong></>
+                  )}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-3">
+                {/* Loading */}
+                {scanning && (
+                  <div className="flex items-center gap-3 text-muted-foreground py-4">
+                    <Loader2Icon className="size-5 animate-spin" />
+                    <span>Analyse en cours...</span>
+                  </div>
+                )}
+
+                {/* Scan result */}
+                {!scanning && scanResult && (
+                  <>
+                    <div
+                      className={`border rounded-lg p-4 flex items-start gap-3 ${
+                        scanResult.decision === "allow"
+                          ? "border-green-300 bg-green-50 dark:bg-green-950/20"
+                          : scanResult.decision === "warn"
+                            ? "border-amber-300 bg-amber-50 dark:bg-amber-950/20"
+                            : "border-red-300 bg-red-50 dark:bg-red-950/20"
+                      }`}
+                    >
+                      {scanResult.decision === "allow" ? (
+                        <CheckCircleIcon className="size-5 text-green-600 shrink-0 mt-0.5" />
+                      ) : scanResult.decision === "warn" ? (
+                        <AlertTriangleIcon className="size-5 text-amber-600 shrink-0 mt-0.5" />
+                      ) : (
+                        <ShieldAlertIcon className="size-5 text-red-600 shrink-0 mt-0.5" />
+                      )}
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm">
+                          {scanResult.decision === "allow"
+                            ? "✅ Aucun problème détecté"
+                            : scanResult.decision === "warn"
+                              ? "⚠️ Points d'attention"
+                              : "🛑 Installation bloquée"}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Score de sécurité : {scanResult.score}/100
+                        </p>
+                        {scanResult.reasons.length > 0 && (
+                          <ul className="mt-2 space-y-1">
+                            {scanResult.reasons.map((reason, i) => (
+                              <li key={i} className="text-xs flex items-start gap-1.5">
+                                <span className="text-muted-foreground mt-0.5">•</span>
+                                <span>{reason}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex gap-2 justify-end">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => { setScanOpen(false); setPendingEntry(null); setPendingServer(null); setScanResult(null); }}
+                      >
+                        Annuler
+                      </Button>
+                      {scanResult.decision !== "block" && (
+                        <Button
+                          size="sm"
+                          onClick={handleConfirmInstall}
+                          variant={scanResult.decision === "warn" ? "outline" : "default"}
+                        >
+                          {scanResult.decision === "warn" ? "Installer malgré l'avertissement" : "Installer"}
+                        </Button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
             </DialogContent>
           </Dialog>
         </div>

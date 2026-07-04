@@ -1,7 +1,7 @@
 import { fetch } from "@/core/api/fetcher";
 import { getBackendBaseURL } from "@/core/config";
 
-import type { MCPConfig, RegistrySearchResponse } from "./types";
+import type { MCPConfig, MCPSecurityScanResult, RegistrySearchResponse } from "./types";
 
 export class MCPConfigRequestError extends Error {
   readonly status: number;
@@ -72,4 +72,29 @@ export async function updateMCPConfig(config: MCPConfig) {
     );
   }
   return response.json();
+}
+
+// ── Security scan ───────────────────────────────────────────────────────
+
+export async function scanMCPServer(server: {
+  enabled: boolean;
+  type: string;
+  command?: string | null;
+  args: string[];
+  env: Record<string, string>;
+  url?: string | null;
+  headers: Record<string, string>;
+  description: string;
+}): Promise<MCPSecurityScanResult> {
+  const response = await fetch(`${getBackendBaseURL()}/api/mcp/scan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(server),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `MCP scan failed: ${response.status} ${response.statusText}`,
+    );
+  }
+  return response.json() as Promise<MCPSecurityScanResult>;
 }

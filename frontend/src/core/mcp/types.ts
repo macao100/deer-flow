@@ -66,6 +66,14 @@ export interface RegistrySearchResponse {
   count: number;
 }
 
+// ── Security Scan ───────────────────────────────────────────────────────
+
+export interface MCPSecurityScanResult {
+  decision: "allow" | "warn" | "block";
+  reasons: string[];
+  score: number;
+}
+
 // ── Catalogue local (intégré) ──────────────────────────────────────────
 
 export const MCP_CATALOG: MCPCatalogEntry[] = [
