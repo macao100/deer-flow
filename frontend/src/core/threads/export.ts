@@ -208,17 +208,73 @@ export function downloadAsFile(
   URL.revokeObjectURL(url);
 }
 
-export function exportThreadAsMarkdown(
-  thread: AgentThread,
-  messages: Message[],
-) {
-  const markdown = formatThreadAsMarkdown(thread, messages);
-  const filename = `${sanitizeFilename(titleOfThread(thread))}.md`;
-  downloadAsFile(markdown, filename, "text/markdown;charset=utf-8");
+/**
+ * Save content to a file chosen by the user via the File System Access API.
+ *
+ * On browsers that support {@link window.showSaveFilePicker} (Chromium-based),
+ * the user is prompted to choose a destination folder and filename.
+ * Falls back to the classic {@link downloadAsFile} mechanism on other browsers
+ * (Firefox, Safari) or when the API is unavailable.
+ *
+ * @returns `true` if the file was saved, `false` if the user cancelled the picker.
+ */
+async function saveFileWithPicker(
+  content: string,
+  filename: string,
+  mimeType: string,
+): Promise<boolean> {
+  const win = window as Window & {
+    showSaveFilePicker?: (opts: {
+      suggestedName?: string;
+      types?: Array<{
+        description: string;
+        accept: Record<string, string[]>;
+      }>;
+    }) => Promise<{ createWritable: () => Promise<{ write: (data: string) => Promise<void>; close: () => Promise<void> }> }>;
+  };
+
+  if (win.showSaveFilePicker) {
+    try {
+      const ext = filename.endsWith(".json") ? ".json" : ".md";
+      const handle = await win.showSaveFilePicker({
+        suggestedName: filename,
+        types: [
+          {
+            description: ext === ".json" ? "JSON" : "Markdown",
+            accept: { [mimeType]: [ext] },
+          },
+        ],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(content);
+      await writable.close();
+      return true;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return false;
+      }
+      // Other errors: fall through to fallback
+    }
+  }
+  // Fallback: classic browser download (default download folder)
+  downloadAsFile(content, filename, mimeType);
+  return true;
 }
 
-export function exportThreadAsJSON(thread: AgentThread, messages: Message[]) {
+export async function exportThreadAsMarkdown(
+  thread: AgentThread,
+  messages: Message[],
+): Promise<boolean> {
+  const markdown = formatThreadAsMarkdown(thread, messages);
+  const filename = `${sanitizeFilename(titleOfThread(thread))}.md`;
+  return saveFileWithPicker(markdown, filename, "text/markdown;charset=utf-8");
+}
+
+export async function exportThreadAsJSON(
+  thread: AgentThread,
+  messages: Message[],
+): Promise<boolean> {
   const json = formatThreadAsJSON(thread, messages);
   const filename = `${sanitizeFilename(titleOfThread(thread))}.json`;
-  downloadAsFile(json, filename, "application/json;charset=utf-8");
+  return saveFileWithPicker(json, filename, "application/json;charset=utf-8");
 }

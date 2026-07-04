@@ -28,7 +28,7 @@ export function ExportTrigger({ threadId }: { threadId: string }) {
   const messages = thread.messages;
 
   const handleExport = useCallback(
-    (format: "markdown" | "json") => {
+    async (format: "markdown" | "json") => {
       if (messages.length === 0) {
         toast.error(t.conversation.noMessages);
         return;
@@ -39,12 +39,15 @@ export function ExportTrigger({ threadId }: { threadId: string }) {
         values: thread.values,
       } as AgentThread;
 
+      let saved: boolean;
       if (format === "markdown") {
-        exportThreadAsMarkdown(agentThread, messages);
+        saved = await exportThreadAsMarkdown(agentThread, messages);
       } else {
-        exportThreadAsJSON(agentThread, messages);
+        saved = await exportThreadAsJSON(agentThread, messages);
       }
-      toast.success(t.common.exportSuccess);
+      if (saved) {
+        toast.success(t.common.exportSuccess);
+      }
     },
     [messages, thread.values, threadId, t],
   );
