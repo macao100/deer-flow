@@ -29,6 +29,7 @@ from langgraph.checkpoint.base import empty_checkpoint
 if TYPE_CHECKING:
     from langchain_core.messages import HumanMessage
 
+from deerflow.agents.middlewares.complexity_router_middleware import route_by_complexity
 from deerflow.config.app_config import AppConfig
 from deerflow.runtime.serialization import serialize
 from deerflow.runtime.stream_bridge import StreamBridge
@@ -250,6 +251,37 @@ async def run_agent(
         # Resolve after runtime context installation so context/configurable reflect
         # the agent name that this run will actually execute.
         config.setdefault("run_name", resolve_root_run_name(config, record.assistant_id))
+
+        # ── Complexity-based model routing ──────────────────────────────────
+        # Applied BEFORE the agent factory so the correct model name is set
+        # when _make_lead_agent resolves the model at graph construction time.
+        if ctx.app_config is not None and getattr(ctx.app_config, "complexity_router", None) is not None and ctx.app_config.complexity_router.enabled:
+            router_cfg = ctx.app_config.complexity_router
+            user_msg = _extract_human_message(graph_input)
+            user_text = str(user_msg.content) if user_msg else ""
+            thread_msgs = len(graph_input.get("messages", []))
+            current_model = record.model_name or config.get("configurable", {}).get("model_name")
+
+            routed = route_by_complexity(
+                user_message=user_text,
+                current_model_name=current_model,
+                thread_message_count=thread_msgs,
+                simple_model=router_cfg.simple_model,
+                complex_model=router_cfg.complex_model,
+                complex_thinking=router_cfg.complex_thinking,
+                simple_thinking=router_cfg.simple_thinking,
+                token_threshold=router_cfg.token_threshold,
+                history_threshold=router_cfg.history_threshold,
+                complex_keywords=router_cfg.complex_keywords,
+                min_criteria=router_cfg.min_criteria,
+            )
+            if routed is not None:
+                new_model, new_thinking = routed
+                config.setdefault("configurable", {})["model_name"] = new_model
+                config.setdefault("configurable", {})["thinking_enabled"] = new_thinking
+                if record.model_name is not None and new_model != record.model_name:
+                    await run_manager.update_model_name(record.run_id, new_model)
+
         runnable_config = RunnableConfig(**config)
         if ctx.app_config is not None and _agent_factory_supports_app_config(agent_factory):
             agent = agent_factory(config=runnable_config, app_config=ctx.app_config)

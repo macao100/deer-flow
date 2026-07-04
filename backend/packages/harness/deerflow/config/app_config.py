@@ -16,6 +16,7 @@ from deerflow.config.checkpointer_config import CheckpointerConfig, load_checkpo
 from deerflow.config.database_config import DatabaseConfig
 from deerflow.config.extensions_config import ExtensionsConfig
 from deerflow.config.guardrails_config import GuardrailsConfig, load_guardrails_config_from_dict
+from deerflow.config.complexity_router_config import ComplexityRouterConfig
 from deerflow.config.loop_detection_config import LoopDetectionConfig
 from deerflow.config.memory_config import MemoryConfig, load_memory_config_from_dict
 from deerflow.config.model_config import ModelConfig
@@ -124,6 +125,7 @@ class AppConfig(BaseModel):
             field_doc="User-facing IM channel connection configuration.",
         ),
     )
+    complexity_router: ComplexityRouterConfig = Field(default_factory=ComplexityRouterConfig, description="Complexity-based model routing configuration")
     loop_detection: LoopDetectionConfig = Field(default_factory=LoopDetectionConfig, description="Loop detection middleware configuration")
     safety_finish_reason: SafetyFinishReasonConfig = Field(default_factory=SafetyFinishReasonConfig, description="Provider safety-filter finish_reason interception middleware configuration")
     model_config = ConfigDict(extra="allow")

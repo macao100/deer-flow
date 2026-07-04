@@ -246,6 +246,37 @@ tool_output:
   exempt_tools:
     - read_file
     - read_file_tool
+complexity_router:
+  enabled: true
+  simple_model: "deepseek-v4-flash"
+  complex_model: "deepseek-v4-pro"
+  complex_thinking: true
+  simple_thinking: false
+  token_threshold: 500
+  history_threshold: 10
+  min_criteria: 2
+  complex_keywords:
+    - "architecture"
+    - "refactor"
+    - "design"
+    - "analyser"
+    - "analyze"
+    - "pourquoi"
+    - "explique"
+    - "explain"
+    - "compare"
+    - "plan"
+    - "stratégie"
+    - "strategy"
+    - "debug"
+    - "diagnostiquer"
+    - "optimiser"
+    - "optimize"
+    - "sécurité"
+    - "security"
+    - "audit"
+    - "migrer"
+    - "migrate"
 loop_detection:
   enabled: true
   warn_threshold: 5

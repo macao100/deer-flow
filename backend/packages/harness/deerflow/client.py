@@ -35,6 +35,7 @@ from langchain_core.runnables import RunnableConfig
 
 from deerflow.agents.lead_agent.agent import build_middlewares
 from deerflow.agents.lead_agent.prompt import apply_prompt_template
+from deerflow.agents.middlewares.complexity_router_middleware import route_by_complexity
 from deerflow.agents.thread_state import ThreadState
 from deerflow.config.agents_config import AGENT_NAME_PATTERN
 from deerflow.config.app_config import get_app_config, reload_app_config
@@ -618,6 +619,32 @@ class DeerFlowClient:
             model_name=configurable.get("model_name") or self._model_name,
             environment=self._environment or os.environ.get("DEER_FLOW_ENV") or os.environ.get("ENVIRONMENT"),
         )
+
+        # ── Complexity-based model routing ──────────────────────────────────
+        # Applied BEFORE _ensure_agent so the correct model name lands in
+        # config["configurable"] and the agent factory picks it up.
+        app_config = get_app_config()
+        if app_config.complexity_router.enabled:
+            router_cfg = app_config.complexity_router
+            current_model = configurable.get("model_name") or self._model_name
+            routed = route_by_complexity(
+                user_message=message,
+                current_model_name=current_model,
+                thread_message_count=0,  # embedded client does not track message count per call
+                simple_model=router_cfg.simple_model,
+                complex_model=router_cfg.complex_model,
+                complex_thinking=router_cfg.complex_thinking,
+                simple_thinking=router_cfg.simple_thinking,
+                token_threshold=router_cfg.token_threshold,
+                history_threshold=router_cfg.history_threshold,
+                complex_keywords=router_cfg.complex_keywords,
+                min_criteria=router_cfg.min_criteria,
+            )
+            if routed is not None:
+                new_model, new_thinking = routed
+                configurable["model_name"] = new_model
+                configurable["thinking_enabled"] = new_thinking
+                config["configurable"] = configurable
 
         self._ensure_agent(config)
 
