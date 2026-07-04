@@ -120,11 +120,13 @@ def test_json_output_uses_concise_review_record_schema(tmp_path: Path, capsys) -
 
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
+    # Sur Windows, le détecteur normalise les chemins en forward slashes (as_posix)
+    expected_path = source_file.as_posix() if hasattr(source_file, "as_posix") else str(source_file)
     assert payload == [
         {
             "priority": "HIGH",
             "location": {
-                "path": str(source_file),
+                "path": expected_path,
                 "line": 4,
                 "column": 5,
                 "function": "handler",

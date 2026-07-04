@@ -168,11 +168,11 @@ class LocalSandbox(Sandbox):
             Container path if mapping exists, otherwise original path
         """
         normalized_path = path.replace("\\", "/")
-        path_str = str(Path(normalized_path).resolve())
+        path_str = str(Path(normalized_path).resolve()).replace("\\", "/")
 
         # Try each mapping (longest local path first for more specific matches)
         for mapping in sorted(self.path_mappings, key=lambda m: len(m.local_path), reverse=True):
-            local_path_resolved = str(Path(mapping.local_path).resolve())
+            local_path_resolved = str(Path(mapping.local_path).resolve()).replace("\\", "/")
             if path_str == local_path_resolved or path_str.startswith(local_path_resolved + "/"):
                 # Replace the local path prefix with container path
                 relative = path_str[len(local_path_resolved) :].lstrip("/")
@@ -204,8 +204,15 @@ class LocalSandbox(Sandbox):
         # Match paths like /Users/... or other absolute paths
         result = output
         for mapping in sorted_mappings:
-            # Escape the local path for use in regex
-            escaped_local = re.escape(str(Path(mapping.local_path).resolve()))
+            # Construit une regex qui matche les deux styles de séparateurs.
+            # _resolve_paths_in_content normalise en forward slashes, tandis
+            # que les sorties de commandes shell utilisent des backslashes
+            # sur Windows.
+            local_raw = str(Path(mapping.local_path).resolve())
+            # Replace chaque séparateur (backslash ou forward slash) par [\\/]
+            # pour que le pattern matche les deux variantes.
+            escaped_local = re.escape(local_raw)
+            escaped_local = re.sub(r"\\\\|/", r"[/\\\\]", escaped_local)
             # Match the local path followed by optional path components with either separator
             pattern = re.compile(escaped_local + r"(?:[/\\][^\s\"';&|<>()]*)?")
 

@@ -17,6 +17,7 @@ shim required.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -99,6 +100,7 @@ def test_list_dir_via_public_api_with_virtual_path(provider):
     assert any("/mnt/user-data/workspace/foo.txt" in e for e in entries)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Shell commands (ls) not available on Windows")
 def test_execute_command_with_virtual_path(provider):
     sandbox_id = provider.acquire("alpha")
     sbx = provider.get(sandbox_id)
@@ -124,6 +126,7 @@ def test_grep_with_virtual_path(provider):
     assert matches[0].path.endswith("/mnt/user-data/workspace/findme.txt")
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Shell commands (ls) not available on Windows")
 def test_execute_command_lists_aggregate_user_data_root(provider):
     """``ls /mnt/user-data`` (the parent prefix itself) must list the three
     subdirs — matching the AIO container's natural filesystem view."""

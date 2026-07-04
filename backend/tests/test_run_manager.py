@@ -354,7 +354,9 @@ async def test_list_by_thread_is_stable_when_timestamps_tie(manager: RunManager,
     r2 = await manager.create("thread-1")
 
     runs = await manager.list_by_thread("thread-1")
-    assert [run.run_id for run in runs] == [r1.run_id, r2.run_id]
+    # With _insertion_seq tiebreaking, newest-first ordering is deterministic
+    # even when timestamps tie: r2 has a higher seq than r1.
+    assert [run.run_id for run in runs] == [r2.run_id, r1.run_id]
 
 
 @pytest.mark.anyio

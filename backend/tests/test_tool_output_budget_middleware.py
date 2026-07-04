@@ -120,18 +120,16 @@ class TestExternalize:
             with open(os.path.join(storage_dir, files[0]), encoding="utf-8") as f:
                 assert f.read() == "full content here"
 
-    def test_returns_none_on_invalid_path(self):
-        # ``/dev/null`` is a character device on both Linux and macOS, so
-        # ``os.makedirs`` cannot create any subdirectory under it for any
-        # user (including root). The previously-used ``/nonexistent/...``
-        # path was silently created by ``mkdir -p`` when the test process
-        # ran as root inside the CI container, which made this test fail
-        # in CI independently of the externalization logic under test.
+    def test_returns_none_on_invalid_path(self, monkeypatch):
+        # Simulate a disk write failure by making os.makedirs raise.
+        # This is platform-agnostic — ``/dev/null`` is a character device on
+        # Unix but a regular path on Windows, so mocking is more reliable.
+        monkeypatch.setattr(os, "makedirs", lambda *a, **kw: (_ for _ in ()).throw(OSError("Permission denied")))
         path = _externalize(
             "data",
             tool_name="test",
             tool_call_id="tc-1",
-            outputs_path="/dev/null/cannot-mkdir-here",
+            outputs_path="/any/path",
             storage_subdir=".tool-results",
         )
         assert path is None
@@ -366,7 +364,14 @@ class TestWrapToolCallFallback:
         assert "Persistent storage unavailable" in result.content
         assert len(result.content) < len(content)
 
-    def test_fallback_when_disk_write_fails(self):
+    def test_fallback_when_disk_write_fails(self, monkeypatch):
+        # Simulate disk write failure by making _externalize return None.
+        # ``/dev/null`` is a character device on Unix but a regular path on
+        # Windows, so mocking is more reliable across platforms.
+        monkeypatch.setattr(
+            "deerflow.agents.middlewares.tool_output_budget_middleware._externalize",
+            lambda *a, **kw: None,
+        )
         config = ToolOutputConfig(
             externalize_min_chars=50,
             fallback_max_chars=200,
@@ -376,7 +381,7 @@ class TestWrapToolCallFallback:
         mw = ToolOutputBudgetMiddleware(config=config)
         content = "x" * 500
         msg = _tm(content, name="tool")
-        req = _make_request(outputs_path="/dev/null/cannot-mkdir-here")
+        req = _make_request(outputs_path="/any/path")
 
         result = mw.wrap_tool_call(req, lambda _: msg)
 

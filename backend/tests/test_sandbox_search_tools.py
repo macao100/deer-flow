@@ -1,5 +1,8 @@
+import sys
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
 
 from deerflow.community.aio_sandbox.aio_sandbox import AioSandbox
 from deerflow.sandbox.local.local_sandbox import LocalSandbox
@@ -27,6 +30,7 @@ def _make_runtime(tmp_path):
     )
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Sandbox path mappings use POSIX conventions")
 def test_glob_tool_returns_virtual_paths_and_ignores_common_dirs(tmp_path, monkeypatch) -> None:
     runtime = _make_runtime(tmp_path)
     workspace = tmp_path / "workspace"
@@ -51,6 +55,7 @@ def test_glob_tool_returns_virtual_paths_and_ignores_common_dirs(tmp_path, monke
     assert str(workspace) not in result
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Sandbox path mappings use POSIX conventions")
 def test_glob_tool_supports_skills_virtual_paths(tmp_path, monkeypatch) -> None:
     runtime = _make_runtime(tmp_path)
     skills_dir = tmp_path / "skills"

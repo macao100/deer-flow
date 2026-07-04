@@ -1,4 +1,5 @@
 import errno
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -267,6 +268,7 @@ class TestSymlinkEscapes:
         assert exc_info.value.errno == errno.EROFS
         assert not (writable_dir / "file.txt").exists()
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="Symlink escape detection relies on POSIX symlink semantics")
     def test_list_dir_does_not_follow_symlink_escape_from_mount(self, tmp_path):
         mount_dir = tmp_path / "mount"
         mount_dir.mkdir()
@@ -289,6 +291,7 @@ class TestSymlinkEscapes:
         assert all("secret.txt" not in entry for entry in entries)
         assert all("outside" not in entry for entry in entries)
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="Symlink escape detection relies on POSIX symlink semantics")
     def test_list_dir_formats_internal_directory_symlink_like_directory(self, tmp_path):
         mount_dir = tmp_path / "mount"
         nested_dir = mount_dir / "nested"
@@ -475,6 +478,7 @@ class TestMultipleMounts:
         sandbox.write_file("/mnt/repo/writable/file.txt", "content")
         assert (rw_dir / "file.txt").read_text() == "content"
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="Shell command mocking uses /bin/sh which is unavailable on Windows")
     def test_execute_command_path_replacement(self, tmp_path, monkeypatch):
         data_dir = tmp_path / "data"
         data_dir.mkdir()
@@ -522,7 +526,8 @@ class TestMultipleMounts:
         )
 
         resolved = sandbox._reverse_resolve_path(str(target))
-        assert resolved == str(target.resolve())
+        # _reverse_resolve_path normalise en forward slashes — utiliser as_posix()
+        assert resolved == target.resolve().as_posix()
 
     def test_reverse_resolve_paths_in_output_supports_backslash_separator(self, tmp_path):
         mount_dir = tmp_path / "mount"

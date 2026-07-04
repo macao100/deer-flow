@@ -20,51 +20,57 @@ def storage() -> FileMemoryStorage:
 
 class TestUserIsolatedStorage:
     def test_save_and_load_per_user(self, storage: FileMemoryStorage, base_dir: Path):
+        from deerflow.config.memory_config import MemoryConfig
         from deerflow.config.paths import Paths
 
         paths = Paths(base_dir)
         with patch("deerflow.agents.memory.storage.get_paths", return_value=paths):
-            memory_a = create_empty_memory()
-            memory_a["user"]["workContext"]["summary"] = "User A context"
-            storage.save(memory_a, user_id="alice")
+            with patch("deerflow.agents.memory.storage.get_memory_config", return_value=MemoryConfig(storage_path="")):
+                memory_a = create_empty_memory()
+                memory_a["user"]["workContext"]["summary"] = "User A context"
+                storage.save(memory_a, user_id="alice")
 
-            memory_b = create_empty_memory()
-            memory_b["user"]["workContext"]["summary"] = "User B context"
-            storage.save(memory_b, user_id="bob")
+                memory_b = create_empty_memory()
+                memory_b["user"]["workContext"]["summary"] = "User B context"
+                storage.save(memory_b, user_id="bob")
 
-            loaded_a = storage.load(user_id="alice")
-            loaded_b = storage.load(user_id="bob")
+                loaded_a = storage.load(user_id="alice")
+                loaded_b = storage.load(user_id="bob")
 
-            assert loaded_a["user"]["workContext"]["summary"] == "User A context"
-            assert loaded_b["user"]["workContext"]["summary"] == "User B context"
+                assert loaded_a["user"]["workContext"]["summary"] == "User A context"
+                assert loaded_b["user"]["workContext"]["summary"] == "User B context"
 
     def test_user_memory_file_location(self, base_dir: Path):
+        from deerflow.config.memory_config import MemoryConfig
         from deerflow.config.paths import Paths
 
         paths = Paths(base_dir)
         with patch("deerflow.agents.memory.storage.get_paths", return_value=paths):
-            s = FileMemoryStorage()
-            memory = create_empty_memory()
-            s.save(memory, user_id="alice")
-            expected_path = base_dir / "users" / "alice" / "memory.json"
-            assert expected_path.exists()
+            with patch("deerflow.agents.memory.storage.get_memory_config", return_value=MemoryConfig(storage_path="")):
+                s = FileMemoryStorage()
+                memory = create_empty_memory()
+                s.save(memory, user_id="alice")
+                expected_path = base_dir / "users" / "alice" / "memory.json"
+                assert expected_path.exists()
 
     def test_cache_isolated_per_user(self, base_dir: Path):
+        from deerflow.config.memory_config import MemoryConfig
         from deerflow.config.paths import Paths
 
         paths = Paths(base_dir)
         with patch("deerflow.agents.memory.storage.get_paths", return_value=paths):
-            s = FileMemoryStorage()
-            memory_a = create_empty_memory()
-            memory_a["user"]["workContext"]["summary"] = "A"
-            s.save(memory_a, user_id="alice")
+            with patch("deerflow.agents.memory.storage.get_memory_config", return_value=MemoryConfig(storage_path="")):
+                s = FileMemoryStorage()
+                memory_a = create_empty_memory()
+                memory_a["user"]["workContext"]["summary"] = "A"
+                s.save(memory_a, user_id="alice")
 
-            memory_b = create_empty_memory()
-            memory_b["user"]["workContext"]["summary"] = "B"
-            s.save(memory_b, user_id="bob")
+                memory_b = create_empty_memory()
+                memory_b["user"]["workContext"]["summary"] = "B"
+                s.save(memory_b, user_id="bob")
 
-            loaded_a = s.load(user_id="alice")
-            assert loaded_a["user"]["workContext"]["summary"] == "A"
+                loaded_a = s.load(user_id="alice")
+                assert loaded_a["user"]["workContext"]["summary"] == "A"
 
     def test_no_user_id_uses_legacy_path(self, base_dir: Path):
         from deerflow.config.memory_config import MemoryConfig
@@ -127,26 +133,28 @@ class TestUserIsolatedStorage:
 
     def test_reload_with_user_id(self, base_dir: Path):
         """reload() with user_id should force re-read from the user-scoped file."""
+        from deerflow.config.memory_config import MemoryConfig
         from deerflow.config.paths import Paths
 
         paths = Paths(base_dir)
         with patch("deerflow.agents.memory.storage.get_paths", return_value=paths):
-            s = FileMemoryStorage()
-            memory = create_empty_memory()
-            memory["user"]["workContext"]["summary"] = "initial"
-            s.save(memory, user_id="alice")
+            with patch("deerflow.agents.memory.storage.get_memory_config", return_value=MemoryConfig(storage_path="")):
+                s = FileMemoryStorage()
+                memory = create_empty_memory()
+                memory["user"]["workContext"]["summary"] = "initial"
+                s.save(memory, user_id="alice")
 
-            # Load once to prime cache
-            s.load(user_id="alice")
+                # Load once to prime cache
+                s.load(user_id="alice")
 
-            # Write updated content directly to file
-            user_file = base_dir / "users" / "alice" / "memory.json"
-            import json
+                # Write updated content directly to file
+                user_file = base_dir / "users" / "alice" / "memory.json"
+                import json
 
-            updated = create_empty_memory()
-            updated["user"]["workContext"]["summary"] = "updated"
-            user_file.write_text(json.dumps(updated))
+                updated = create_empty_memory()
+                updated["user"]["workContext"]["summary"] = "updated"
+                user_file.write_text(json.dumps(updated))
 
-            # reload should pick up the new content
-            reloaded = s.reload(user_id="alice")
-            assert reloaded["user"]["workContext"]["summary"] == "updated"
+                # reload should pick up the new content
+                reloaded = s.reload(user_id="alice")
+                assert reloaded["user"]["workContext"]["summary"] == "updated"

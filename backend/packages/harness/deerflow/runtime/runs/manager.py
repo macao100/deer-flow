@@ -102,6 +102,7 @@ class RunRecord:
     message_count: int = 0
     last_ai_message: str | None = None
     first_human_message: str | None = None
+    _insertion_seq: int = 0  # monotonic tiebreaker for timestamp ordering
 
 
 class RunManager:
@@ -127,6 +128,8 @@ class RunManager:
         self._lock = asyncio.Lock()
         self._store = store
         self._persistence_retry_policy = persistence_retry_policy or PersistenceRetryPolicy()
+        # Monotonic counter for deterministic tiebreaking when timestamps are identical.
+        self._insertion_seq: int = 0
 
     def _index_run_locked(self, record: RunRecord) -> None:
         """Register *record* in the thread index. Caller must hold ``self._lock``."""
@@ -379,6 +382,8 @@ class RunManager:
             updated_at=now,
         )
         async with self._lock:
+            self._insertion_seq += 1
+            record._insertion_seq = self._insertion_seq
             self._runs[run_id] = record
             self._index_run_locked(record)
             persisted = False
@@ -450,7 +455,7 @@ class RunManager:
         async with self._lock:
             memory_records = self._thread_records_locked(thread_id)
         if self._store is None:
-            return sorted(memory_records, key=lambda r: r.created_at, reverse=True)[:limit]
+            return sorted(memory_records, key=lambda r: (r.created_at, r._insertion_seq), reverse=True)[:limit]
         records_by_id = {record.run_id: record for record in memory_records}
         store_limit = max(0, limit - len(memory_records))
         try:
@@ -595,6 +600,8 @@ class RunManager:
                 updated_at=now,
                 model_name=model_name,
             )
+            self._insertion_seq += 1
+            record._insertion_seq = self._insertion_seq
             self._runs[run_id] = record
             self._index_run_locked(record)
             persisted = False

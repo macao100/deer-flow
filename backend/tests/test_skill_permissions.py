@@ -1,10 +1,16 @@
 import stat
+import sys
+
+import pytest
 
 from deerflow.skills.permissions import make_skill_tree_sandbox_readable, make_skill_written_path_sandbox_readable
 
 
 def _mode(path):
     return stat.S_IMODE(path.stat().st_mode)
+
+
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="chmod POSIX non supporté sur Windows")
 
 
 def test_skill_tree_readability_includes_hidden_paths_and_removes_sandbox_write(tmp_path):
