@@ -10,6 +10,7 @@ from weakref import WeakValueDictionary
 from langchain.tools import tool
 
 from deerflow.agents.lead_agent.prompt import refresh_skills_system_prompt_cache_async
+from deerflow.skills.catalog import get_catalog_entry
 from deerflow.skills.security_scanner import scan_skill_content
 from deerflow.skills.storage import get_or_new_skill_storage
 from deerflow.skills.storage.skill_storage import SkillStorage
@@ -76,7 +77,7 @@ async def _skill_manage_impl(
     """Manage custom skills under skills/custom/.
 
     Args:
-        action: One of create, patch, edit, delete, write_file, remove_file.
+        action: One of create, install, patch, edit, delete, write_file, remove_file.
         name: Skill name in hyphen-case.
         content: New file content for create, edit, or write_file.
         path: Supporting file path for write_file or remove_file.
@@ -105,6 +106,25 @@ async def _skill_manage_impl(
             )
             await refresh_skills_system_prompt_cache_async()
             return f"Created custom skill '{name}'."
+
+        if action == "install":
+            catalog_entry = get_catalog_entry(name)
+            if catalog_entry is None:
+                available = ", ".join(sorted({e.name for e in __import__("deerflow.skills.catalog", fromlist=["SKILL_CATALOG"]).SKILL_CATALOG}))
+                raise ValueError(f"Skill '{name}' not found in the online catalog. Available: {available}")
+            if await _to_thread(skill_storage.custom_skill_exists, name):
+                raise ValueError(f"Custom skill '{name}' already exists. Use action='edit' to modify it.")
+            content = catalog_entry.content
+            await _to_thread(skill_storage.validate_skill_markdown_content, name, content)
+            scan = await _scan_or_raise(content, executable=False, location=f"{name}/{SKILL_MD_FILE}")
+            await _to_thread(skill_storage.write_custom_skill, name, SKILL_MD_FILE, content)
+            await _to_thread(
+                skill_storage.append_history,
+                name,
+                _history_record(action="install", file_path=SKILL_MD_FILE, prev_content=None, new_content=content, thread_id=thread_id, scanner=scan),
+            )
+            await refresh_skills_system_prompt_cache_async()
+            return f"Installed skill '{name}' ({catalog_entry.icon} {catalog_entry.category}). Use /{name} to activate it, or edit with action='edit'."
 
         if action == "edit":
             await _to_thread(skill_storage.ensure_custom_skill_is_editable, name)
@@ -214,8 +234,11 @@ async def skill_manage_tool(
 ) -> str:
     """Manage custom skills under skills/custom/.
 
+    Use `skill_search` first to discover available skills from the online catalog,
+    then install the ones you need with action="install".
+
     Args:
-        action: One of create, patch, edit, delete, write_file, remove_file.
+        action: One of create, install, patch, edit, delete, write_file, remove_file.
         name: Skill name in hyphen-case.
         content: New file content for create, edit, or write_file.
         path: Supporting file path for write_file or remove_file.

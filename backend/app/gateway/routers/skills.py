@@ -11,6 +11,7 @@ from deerflow.agents.lead_agent.prompt import refresh_skills_system_prompt_cache
 from deerflow.config.app_config import AppConfig
 from deerflow.config.extensions_config import ExtensionsConfig, SkillStateConfig, get_extensions_config, reload_extensions_config
 from deerflow.skills import Skill
+from deerflow.skills.catalog import search_catalog
 from deerflow.skills.installer import SkillAlreadyExistsError
 from deerflow.skills.security_scanner import scan_skill_content
 from deerflow.skills.storage import get_or_new_skill_storage
@@ -87,6 +88,17 @@ class SkillScanRequest(BaseModel):
 class SkillScanResponse(BaseModel):
     decision: str = Field(..., description="allow, warn, or block")
     reason: str = Field(..., description="Explanation of the scan decision")
+
+
+class SkillCatalogEntryResponse(BaseModel):
+    name: str = Field(..., description="Skill name (slug)")
+    description: str = Field(..., description="Human-readable description")
+    icon: str = Field(..., description="Emoji icon")
+    category: str = Field(..., description="Category: research, creation, analysis, dev, design")
+
+
+class SkillCatalogResponse(BaseModel):
+    skills: list[SkillCatalogEntryResponse] = Field(default_factory=list, description="Matching catalog entries")
 
 
 def _skill_to_response(skill: Skill) -> SkillResponse:
@@ -291,6 +303,31 @@ async def rollback_custom_skill(skill_name: str, request: SkillRollbackRequest, 
     except Exception as e:
         logger.error("Failed to roll back custom skill %s: %s", skill_name, e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to roll back custom skill: {str(e)}")
+
+
+@router.get("/skills/catalog", response_model=SkillCatalogResponse, summary="Search the online skill catalog")
+async def search_skill_catalog(
+    q: str = "",
+    category: str | None = None,
+) -> SkillCatalogResponse:
+    """Search the online skill catalog available for installation.
+
+    This is a read-only public endpoint — no auth required.
+    Results can be installed via POST /api/skills/custom (with content from catalog)
+    or by the agent via skill_manage(action="install", name="...").
+    """
+    results = search_catalog(query=q, category=category)
+    return SkillCatalogResponse(
+        skills=[
+            SkillCatalogEntryResponse(
+                name=e.name,
+                description=e.description,
+                icon=e.icon,
+                category=e.category,
+            )
+            for e in results
+        ]
+    )
 
 
 @router.post("/skills/custom/scan", response_model=SkillScanResponse, summary="Security-scan skill content without saving")
