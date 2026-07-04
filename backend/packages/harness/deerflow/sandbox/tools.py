@@ -1699,6 +1699,66 @@ def _effective_write_file_max_bytes() -> int:
         return _WRITE_FILE_CONTENT_MAX_BYTES
 
 
+def _detect_possible_truncation(path: str, content: str) -> str | None:
+    """Détecte une troncature probable dans le contenu écrit, selon l'extension.
+
+    Retourne un message d'avertissement (str) ou None si pas de troncature détectée.
+    """
+    ext = os.path.splitext(path)[1].lower()
+
+    if ext == ".json":
+        import json
+        if not content.strip():
+            return None  # fichier JSON vide : pas une troncature
+        try:
+            json.loads(content)
+        except json.JSONDecodeError:
+            return "JSON invalide, possiblement tronqué"
+        return None
+
+    if ext in {".ts", ".tsx", ".js", ".jsx"}:
+        braces = content.count("{") - content.count("}")
+        parens = content.count("(") - content.count(")")
+        if braces != 0 or parens != 0:
+            return f"Accolades/parenthèses déséquilibrées ({{: {braces:+d}, (:{parens:+d}), possiblement tronqué"
+        stripped = content.rstrip()
+        if stripped and stripped[-1] not in ("}", ";", "`", "\n", "\r"):
+            return "Le fichier ne se termine pas par un caractère de fin plausible, possiblement tronqué"
+        return None
+
+    if ext in {".mdx", ".md"}:
+        lines = content.splitlines()
+        frontmatter_open = False
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped == "---":
+                if not frontmatter_open:
+                    # Le frontmatter ne peut commencer qu'à la première ligne
+                    if i == 0:
+                        frontmatter_open = True
+                    else:
+                        return None  # ligne horizontale dans le corps
+                else:
+                    return None  # frontmatter fermé
+        if frontmatter_open:
+            return "Frontmatter YAML ouvert (---) non refermé, possiblement tronqué"
+        return None
+
+    if ext in {".yaml", ".yml"}:
+        import yaml
+        if not content.strip():
+            return None
+        try:
+            result = yaml.safe_load(content)
+        except yaml.YAMLError:
+            return "YAML invalide, possiblement tronqué"
+        # safe_load peut retourner None pour un contenu valide (ex: fichier avec juste des commentaires)
+        # ou pour un contenu tronqué. On ne flag pas None seul — trop de faux positifs.
+        return None
+
+    return None
+
+
 @tool("write_file", parse_docstring=True)
 def write_file_tool(
     runtime: Runtime,
@@ -1760,7 +1820,12 @@ def write_file_tool(
             # Custom mount paths are resolved by LocalSandbox._resolve_path()
         with get_file_operation_lock(sandbox, path):
             sandbox.write_file(path, content, append)
-        return "OK"
+        result = "OK"
+        if not append:
+            warning = _detect_possible_truncation(path, content)
+            if warning:
+                result = f"OK\n⚠ Possible troncature : {warning}"
+        return result
     except SandboxError as e:
         return _format_write_file_error(requested_path, e, runtime)
     except PermissionError:
