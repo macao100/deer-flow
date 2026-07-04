@@ -1,6 +1,6 @@
 ---
 name: smoke-test
-description: End-to-end smoke test skill for DeerFlow. Guides through: 1) Pulling latest code, 2) Docker OR Local installation and deployment (user preference, default to Local if Docker network issues), 3) Service availability verification, 4) Health check, 5) Final test report. Use when the user says "run smoke test", "smoke test deployment", "verify installation", "test service availability", "end-to-end test", or similar.
+description: "End-to-end smoke test skill for DeerFlow. Guides through: 1) Pulling latest code, 2) Docker OR Local installation and deployment (user preference, default to Local if Docker network issues), 3) Service availability verification, 4) Health check, 5) Final test report. Use when the user says \"run smoke test\", \"smoke test deployment\", \"verify installation\", \"test service availability\", \"end-to-end test\", or similar."
 ---
 
 # DeerFlow Smoke Test Skill
