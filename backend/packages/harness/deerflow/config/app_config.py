@@ -21,6 +21,7 @@ from deerflow.config.guardrails_config import GuardrailsConfig, load_guardrails_
 from deerflow.config.loop_detection_config import LoopDetectionConfig
 from deerflow.config.memory_config import MemoryConfig, load_memory_config_from_dict
 from deerflow.config.model_config import ModelConfig
+from deerflow.config.evaluation_config import EvaluationConfig
 from deerflow.config.observability_config import ObservabilityConfig
 from deerflow.config.reload_boundary import format_field_description
 from deerflow.config.run_events_config import RunEventsConfig
@@ -151,6 +152,7 @@ class AppConfig(BaseModel):
     node_timeout: NodeTimeoutConfig = Field(default_factory=NodeTimeoutConfig, description="Per-node LLM call timeout configuration")
     safety_finish_reason: SafetyFinishReasonConfig = Field(default_factory=SafetyFinishReasonConfig, description="Provider safety-filter finish_reason interception middleware configuration")
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig, description="Observability subsystem configuration")
+    evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig, description="Evaluation pipeline configuration")
     model_config = ConfigDict(extra="allow")
     database: DatabaseConfig = Field(
         default_factory=DatabaseConfig,

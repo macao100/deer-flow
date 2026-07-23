@@ -278,7 +278,7 @@ complexity_router:
     - "migrer"
     - "migrate"
 model_router:
-  enabled: false
+  enabled: true
   default_strategy: balanced
   latency_window_size: 50
 loop_detection:
@@ -402,3 +402,17 @@ run_events:
   backend: db
   max_trace_content: 10240
   track_token_usage: true
+
+# ── Pipeline d'évaluation ─────────────────────────────────────────────
+evaluation:
+  enabled: false
+  datasets_dir: ".deer-flow/evaluation/datasets"
+  default_judge_model: "deepseek-v4-pro"
+  max_concurrent_evals: 3
+  metrics:
+    exact_match: true
+    semantic_similarity: false
+    tool_call_accuracy: false
+    trajectory_accuracy: false
+    latency: true
+    token_usage: true
