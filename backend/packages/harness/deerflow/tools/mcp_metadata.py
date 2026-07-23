@@ -18,9 +18,23 @@ from langchain.tools import BaseTool
 MCP_TOOL_METADATA_KEY = "deerflow_mcp"
 
 
-def tag_mcp_tool(tool: BaseTool) -> BaseTool:
-    """Mark ``tool`` as MCP-sourced. Mutates in place and returns it for chaining."""
-    tool.metadata = {**(tool.metadata or {}), MCP_TOOL_METADATA_KEY: True}
+def tag_mcp_tool(tool: BaseTool, *, server_name: str | None = None, tool_name: str | None = None) -> BaseTool:
+    """Mark ``tool`` as MCP-sourced. Mutates in place and returns it for chaining.
+
+    Args:
+        tool: The LangChain tool to tag.
+        server_name: Optional originating MCP server name.
+        tool_name: Optional original MCP tool name (without prefix).
+
+    Returns:
+        The same tool (mutated in place, returned for chaining).
+    """
+    meta: dict[str, object] = {**(tool.metadata or {}), MCP_TOOL_METADATA_KEY: True}
+    if server_name is not None:
+        meta["mcp_server"] = server_name
+    if tool_name is not None:
+        meta["mcp_tool_name"] = tool_name
+    tool.metadata = meta
     return tool
 
 

@@ -169,7 +169,9 @@ def _make_session_pool_tool(
 
         return _convert_call_tool_result(call_tool_result)
 
-    return StructuredTool(
+    from deerflow.mcp.adapter import MCPToolAdapter
+
+    new_tool = StructuredTool(
         name=tool.name,
         description=tool.description,
         args_schema=tool.args_schema,
@@ -177,6 +179,7 @@ def _make_session_pool_tool(
         response_format="content_and_artifact",
         metadata=tool.metadata,
     )
+    return MCPToolAdapter.inject_metadata(new_tool, server_name, original_name)
 
 
 async def get_mcp_tools() -> list[BaseTool]:
@@ -201,6 +204,22 @@ async def get_mcp_tools() -> list[BaseTool]:
     # made through the Gateway API (which runs in a separate process) are immediately
     # reflected when initializing MCP tools.
     extensions_config = ExtensionsConfig.from_file()
+
+    # ── Merge skill-defined MCP servers ───────────────────────────────
+    try:
+        from deerflow.config.app_config import get_app_config
+        from deerflow.mcp.skill_bridge import MCPSkillBridge
+
+        app_cfg = get_app_config()
+        skills_root = app_cfg.skills.get_skills_path()
+        skill_configs = MCPSkillBridge.scan_skills(skills_root)
+        if skill_configs:
+            extensions_config = MCPSkillBridge.merge_into_extensions_config(
+                skill_configs, extensions_config
+            )
+    except Exception:
+        logger.debug("Could not merge skill MCP configs", exc_info=True)
+
     servers_config = build_servers_config(extensions_config)
 
     if not servers_config:
