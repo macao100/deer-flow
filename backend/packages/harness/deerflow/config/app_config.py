@@ -14,6 +14,7 @@ from deerflow.config.agents_api_config import AgentsApiConfig, load_agents_api_c
 from deerflow.config.channel_connections_config import ChannelConnectionsConfig
 from deerflow.config.checkpointer_config import CheckpointerConfig, load_checkpointer_config_from_dict
 from deerflow.config.complexity_router_config import ComplexityRouterConfig
+from deerflow.config.model_router_config import ModelRouterConfig
 from deerflow.config.database_config import DatabaseConfig
 from deerflow.config.extensions_config import ExtensionsConfig
 from deerflow.config.guardrails_config import GuardrailsConfig, load_guardrails_config_from_dict
@@ -145,6 +146,7 @@ class AppConfig(BaseModel):
         ),
     )
     complexity_router: ComplexityRouterConfig = Field(default_factory=ComplexityRouterConfig, description="Complexity-based model routing configuration")
+    model_router: ModelRouterConfig = Field(default_factory=ModelRouterConfig, description="Intelligent multi-model routing configuration")
     loop_detection: LoopDetectionConfig = Field(default_factory=LoopDetectionConfig, description="Loop detection middleware configuration")
     node_timeout: NodeTimeoutConfig = Field(default_factory=NodeTimeoutConfig, description="Per-node LLM call timeout configuration")
     safety_finish_reason: SafetyFinishReasonConfig = Field(default_factory=SafetyFinishReasonConfig, description="Provider safety-filter finish_reason interception middleware configuration")
