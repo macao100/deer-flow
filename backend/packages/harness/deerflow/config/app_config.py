@@ -13,13 +13,14 @@ from deerflow.config.acp_config import ACPAgentConfig, load_acp_config_from_dict
 from deerflow.config.agents_api_config import AgentsApiConfig, load_agents_api_config_from_dict
 from deerflow.config.channel_connections_config import ChannelConnectionsConfig
 from deerflow.config.checkpointer_config import CheckpointerConfig, load_checkpointer_config_from_dict
+from deerflow.config.complexity_router_config import ComplexityRouterConfig
 from deerflow.config.database_config import DatabaseConfig
 from deerflow.config.extensions_config import ExtensionsConfig
 from deerflow.config.guardrails_config import GuardrailsConfig, load_guardrails_config_from_dict
-from deerflow.config.complexity_router_config import ComplexityRouterConfig
 from deerflow.config.loop_detection_config import LoopDetectionConfig
 from deerflow.config.memory_config import MemoryConfig, load_memory_config_from_dict
 from deerflow.config.model_config import ModelConfig
+from deerflow.config.observability_config import ObservabilityConfig
 from deerflow.config.reload_boundary import format_field_description
 from deerflow.config.run_events_config import RunEventsConfig
 from deerflow.config.runtime_paths import existing_project_file
@@ -45,6 +46,24 @@ CONFIG_FILE_DATABASE_DEFAULTS = {
     "backend": "sqlite",
     "sqlite_dir": ".deer-flow/data",
 }
+
+
+class NodeTimeoutOverride(BaseModel):
+    """Per-model override for node execution timeout."""
+
+    model_name: str = Field(description="Model name to override timeout for")
+    timeout_seconds: float = Field(description="Timeout in seconds for this specific model", gt=0)
+
+
+class NodeTimeoutConfig(BaseModel):
+    """Configuration for per-node LLM call timeouts."""
+
+    enabled: bool = Field(default=True, description="Enable per-node timeout enforcement")
+    default_timeout_seconds: float = Field(default=120.0, description="Default timeout in seconds for each LLM call", gt=0)
+    per_model_overrides: list[NodeTimeoutOverride] = Field(
+        default_factory=list,
+        description="Per-model timeout overrides (model_name → timeout_seconds)",
+    )
 
 
 class CircuitBreakerConfig(BaseModel):
@@ -127,7 +146,9 @@ class AppConfig(BaseModel):
     )
     complexity_router: ComplexityRouterConfig = Field(default_factory=ComplexityRouterConfig, description="Complexity-based model routing configuration")
     loop_detection: LoopDetectionConfig = Field(default_factory=LoopDetectionConfig, description="Loop detection middleware configuration")
+    node_timeout: NodeTimeoutConfig = Field(default_factory=NodeTimeoutConfig, description="Per-node LLM call timeout configuration")
     safety_finish_reason: SafetyFinishReasonConfig = Field(default_factory=SafetyFinishReasonConfig, description="Provider safety-filter finish_reason interception middleware configuration")
+    observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig, description="Observability subsystem configuration")
     model_config = ConfigDict(extra="allow")
     database: DatabaseConfig = Field(
         default_factory=DatabaseConfig,

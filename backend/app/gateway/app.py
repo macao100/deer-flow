@@ -422,7 +422,23 @@ This gateway provides runtime endpoints for agent runs plus custom endpoints for
     app.include_router(api_keys.router)
     app.include_router(app_config_router.router)
 
-    @app.get("/health", tags=["health"])
+    # Observability API (JE — metrics summary + alerts history)
+    try:
+        obs_config = get_app_config().observability
+    except Exception:
+        obs_config = None
+    if obs_config is not None and obs_config.enabled:
+        try:
+            from deerflow.tracing.factory import get_metrics_collector
+            from deerflow.tracing.observability.router import get_observability_router
+
+            collector = get_metrics_collector()
+            if collector is not None:
+                obs_router = get_observability_router(metrics_collector=collector)
+                app.include_router(obs_router)
+                logger.info("Observability router mounted at /api/observability")
+        except Exception:
+            logger.exception("Failed to mount observability router (non-fatal)")
     async def health_check() -> dict[str, str]:
         """Health check endpoint.
 

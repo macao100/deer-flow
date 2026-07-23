@@ -521,6 +521,24 @@ class SubagentExecutor:
                 "callbacks": [collector],
                 "tags": [collector_caller],
             }
+
+            # ── Trace context propagation ──────────────────────────────────
+            # Create a child trace context so the subagent's spans are
+            # correctly parented under the calling agent in Langfuse/LangSmith.
+            try:
+                from deerflow.tracing.observability.trace_context import TraceContext
+
+                parent_ctx = TraceContext(
+                    trace_id=self.trace_id,
+                    span_id="lead",  # placeholder; the real parent is the lead agent
+                    agent_name=f"subagent:{self.config.name}",
+                    node_name=f"subagent:{self.config.name}",
+                    model_name=self.model_name,
+                )
+                parent_ctx.inject(run_config)
+            except Exception:
+                logger.debug("TraceContext injection skipped", exc_info=True)
+
             context: dict[str, Any] = {}
             if self.thread_id:
                 run_config["configurable"] = {"thread_id": self.thread_id}
