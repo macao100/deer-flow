@@ -97,7 +97,7 @@ class ModelRouter:
             )
 
         # ── Strategy selection ───────────────────────────────────────────
-        strategy = _STRATEGY_MAP.get(strategy_hint or "balanced", self._strategy)
+        strategy = _STRATEGY_MAP.get(strategy_hint, self._strategy) if strategy_hint else self._strategy
         latency_stats = self._latency_tracker.all_stats()
         selected = strategy.select(candidates, requirements, latency_stats)
 

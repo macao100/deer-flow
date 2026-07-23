@@ -1,5 +1,5 @@
 """Tests for ModelRouter orchestrator."""
-from unittest.mock import Mock
+import pytest
 from deerflow.routing.model_entry import (
     Capabilities,
     ModelCost,
@@ -44,11 +44,25 @@ class TestModelRouter:
         )
         assert model_name == "cheap"
 
+    def test_strategy_hint_overrides_default_strategy(self):
+        """strategy_hint parameter should override the router's default strategy."""
+        registry = ModelRegistry({
+            "cheap": _entry("cheap", input_cost=0.1, output_cost=0.2),
+            "expensive": _entry("expensive", input_cost=10.0, output_cost=20.0),
+        })
+        # Router defaults to BalancedStrategy, but we pass strategy_hint="cost_optimized"
+        router = ModelRouter(registry=registry, strategy=BalancedStrategy(), latency_tracker=LatencyTracker())
+        model_name, _ = router.route(
+            requirements=ModelRequirements(required=Capabilities.TOOLS, estimated_input_tokens=1000, estimated_output_tokens=1000, user_message="hi"),
+            strategy_hint="cost_optimized",
+        )
+        # cost_optimized should pick "cheap" — not the BalancedStrategy default
+        assert model_name == "cheap"
+
     def test_route_no_candidates_raises(self):
         """When no model satisfies required capabilities."""
         registry = ModelRegistry({"basic": _entry("basic", Capabilities.TOOLS)})
         router = ModelRouter(registry=registry, strategy=BalancedStrategy(), latency_tracker=LatencyTracker())
-        import pytest
         with pytest.raises(ValueError, match="No model satisfies"):
             router.route(
                 requirements=ModelRequirements(required=Capabilities.VISION, estimated_input_tokens=100, estimated_output_tokens=100, user_message="hi"),
