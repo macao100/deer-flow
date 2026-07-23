@@ -277,6 +277,10 @@ complexity_router:
     - "audit"
     - "migrer"
     - "migrate"
+model_router:
+  enabled: false
+  default_strategy: balanced
+  latency_window_size: 50
 loop_detection:
   enabled: true
   warn_threshold: 5
@@ -285,6 +289,12 @@ loop_detection:
   max_tracked_threads: 100
   tool_freq_warn: 40
   tool_freq_hard_limit: 60
+node_timeout:
+  enabled: true
+  default_timeout_seconds: 120
+  per_model_overrides:
+    - model_name: deepseek-v4-pro
+      timeout_seconds: 300
 safety_finish_reason:
   enabled: true
 uploads:
