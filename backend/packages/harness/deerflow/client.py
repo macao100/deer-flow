@@ -63,6 +63,28 @@ logger = logging.getLogger(__name__)
 StreamEventType = Literal["values", "messages-tuple", "custom", "end"]
 
 
+# Module-level cached ModelRouter singleton so the latency feedback loop
+# persists across calls within the same process.
+_router: "ModelRouter | None" = None  # noqa: F821 — forward ref, lazy import
+
+
+def _get_model_router() -> "ModelRouter":  # noqa: F821
+    """Return a cached ModelRouter singleton, creating it on first call."""
+    global _router
+    if _router is None:
+        from deerflow.config.app_config import get_app_config
+        from deerflow.routing import BalancedStrategy, LatencyTracker, ModelRegistry, ModelRouter
+
+        app_config = get_app_config()
+        registry = ModelRegistry.from_config(app_config)
+        _router = ModelRouter(
+            registry=registry,
+            strategy=BalancedStrategy(),
+            latency_tracker=LatencyTracker(window_size=app_config.model_router.latency_window_size),
+        )
+    return _router
+
+
 @dataclass
 class StreamEvent:
     """A single event from the streaming agent response.
@@ -625,20 +647,16 @@ class DeerFlowClient:
         # config["configurable"] and the agent factory picks it up.
         app_config = get_app_config()
         if app_config.model_router.enabled:
-            from deerflow.routing import (
-                BalancedStrategy,
-                LatencyTracker,
-                ModelRegistry,
-                ModelRequirements,
-                ModelRouter,
-            )
+            # I1: Warn when both routers are active — model_router takes precedence.
+            if app_config.complexity_router is not None and app_config.complexity_router.enabled:
+                logger.warning(
+                    "Both complexity_router and model_router are enabled — "
+                    "model_router takes precedence"
+                )
 
-            registry = ModelRegistry.from_config(app_config)
-            router = ModelRouter(
-                registry=registry,
-                strategy=BalancedStrategy(),
-                latency_tracker=LatencyTracker(window_size=app_config.model_router.latency_window_size),
-            )
+            from deerflow.routing import ModelRequirements
+
+            router = _get_model_router()
 
             try:
                 new_model, new_thinking = router.route(

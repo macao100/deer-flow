@@ -25,7 +25,11 @@ class RoutingStrategy(Protocol):
 
 
 class CostOptimizedStrategy:
-    """Select the cheapest model that satisfies requirements."""
+    """Select the cheapest model that satisfies requirements.
+
+    Uses ``priority`` as a tiebreaker when costs are equal (higher priority
+    wins — see ModelRouter spec: "préférence à coût égal").
+    """
 
     def select(
         self,
@@ -37,12 +41,19 @@ class CostOptimizedStrategy:
             raise ValueError("No candidates available for selection")
         return min(
             candidates,
-            key=lambda e: e.cost.total_cost(requirements.estimated_input_tokens, requirements.estimated_output_tokens),
+            key=lambda e: (
+                e.cost.total_cost(requirements.estimated_input_tokens, requirements.estimated_output_tokens),
+                -e.priority,  # tiebreaker: higher priority first
+            ),
         )
 
 
 class PerformanceMaxStrategy:
-    """Select the most capable model (max tokens, thinking preferred)."""
+    """Select the most capable model (thinking preferred, then max tokens).
+
+    Uses ``priority`` as a tiebreaker when two models are equally capable
+    (higher priority wins — see ModelRouter spec: "préférence à coût égal").
+    """
 
     def select(
         self,
@@ -54,12 +65,16 @@ class PerformanceMaxStrategy:
             raise ValueError("No candidates available for selection")
         return max(
             candidates,
-            key=lambda e: (Capabilities.THINKING in e.capabilities, e.max_tokens),
+            key=lambda e: (Capabilities.THINKING in e.capabilities, e.max_tokens, e.priority),
         )
 
 
 class BalancedStrategy:
-    """Select based on a composite score: capability bonus / (normalized cost × latency penalty)."""
+    """Select based on a composite score: capability bonus / (normalized cost × latency penalty).
+
+    Uses ``priority`` as a tiebreaker when scores are equal (higher priority
+    wins — see ModelRouter spec: "préférence à coût égal").
+    """
 
     def select(
         self,
@@ -92,6 +107,6 @@ class BalancedStrategy:
             score = bonus / (cost * latency_factor)
             scores[entry.name] = score
 
-        best = max(candidates, key=lambda e: scores[e.name])
+        best = max(candidates, key=lambda e: (scores[e.name], e.priority))
         logger.debug("BalancedStrategy: selected %r (score=%.4f)", best.name, scores[best.name])
         return best

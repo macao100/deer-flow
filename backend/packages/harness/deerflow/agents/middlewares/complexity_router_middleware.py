@@ -29,17 +29,10 @@ _FILE_PATH_PATTERN = re.compile(
 )
 
 
-def _count_tokens_heuristic(text: str) -> int:
-    """Rough token count without pulling in a tokenizer.
+from deerflow.routing.token_estimation import estimate_tokens
 
-    Uses the common approximation of ~4 characters per token for English
-    text, with a CJK-aware boost (each CJK character ≈ 1 token).
-    """
-    if not text:
-        return 0
-    cjk = sum(1 for ch in text if "一" <= ch <= "鿿" or "぀" <= ch <= "ヿ")
-    ascii_chars = len(text) - cjk
-    return cjk + max(1, ascii_chars // 4)
+
+_count_tokens_heuristic = estimate_tokens
 
 
 def _count_file_references(text: str) -> int:

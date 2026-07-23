@@ -39,6 +39,10 @@ class TestModelRouterIntegration:
         app_config = get_app_config()
         registry = ModelRegistry.from_config(app_config)
 
+        # I4: Precondition — verify the override model exists in the registry.
+        assert registry.get("deepseek-v4-pro") is not None, \
+            "deepseek-v4-pro must be in the registry for this test"
+
         router = ModelRouter(
             registry=registry,
             strategy=BalancedStrategy(),

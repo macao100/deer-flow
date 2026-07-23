@@ -82,13 +82,18 @@ class ModelRouter:
         # ── Capability filtering ─────────────────────────────────────────
         candidates = self._registry.filter(required=requirements.required)
         if not candidates:
-            # Fallback: try without the most restrictive capability
+            # Fallback: try relaxing one capability at a time
             if requirements.required & Capabilities.THINKING:
                 candidates = self._registry.filter(required=requirements.required & ~Capabilities.THINKING)
                 logger.debug("ModelRouter: relaxed THINKING requirement, %d candidates", len(candidates))
             if not candidates and requirements.required & Capabilities.LARGE_CONTEXT:
                 candidates = self._registry.filter(required=requirements.required & ~Capabilities.LARGE_CONTEXT)
                 logger.debug("ModelRouter: relaxed LARGE_CONTEXT requirement, %d candidates", len(candidates))
+            # I3: If both THINKING and LARGE_CONTEXT were required and neither
+            # single-relaxation produced candidates, try relaxing both.
+            if not candidates and (requirements.required & Capabilities.THINKING) and (requirements.required & Capabilities.LARGE_CONTEXT):
+                candidates = self._registry.filter(required=requirements.required & ~Capabilities.THINKING & ~Capabilities.LARGE_CONTEXT)
+                logger.debug("ModelRouter: relaxed both THINKING and LARGE_CONTEXT, %d candidates", len(candidates))
 
         if not candidates:
             raise ValueError(
@@ -100,6 +105,35 @@ class ModelRouter:
         strategy = _STRATEGY_MAP.get(strategy_hint, self._strategy) if strategy_hint else self._strategy
         latency_stats = self._latency_tracker.all_stats()
         selected = strategy.select(candidates, requirements, latency_stats)
+
+        # ── Fallback chain resolution ──────────────────────────────────────
+        # If the selected model has a fallback_order, iterate through it and
+        # use the first fallback that exists in the registry and satisfies the
+        # required capabilities.
+        if selected.fallback_order:
+            for fallback_name in selected.fallback_order:
+                fallback_entry = self._registry.get(fallback_name)
+                if fallback_entry is None:
+                    logger.debug("ModelRouter: fallback %r not found in registry, skipping", fallback_name)
+                    continue
+                if not fallback_entry.has_capability(requirements.required):
+                    logger.debug(
+                        "ModelRouter: fallback %r does not satisfy required capabilities %r, skipping",
+                        fallback_name, requirements.required,
+                    )
+                    continue
+                logger.info(
+                    "ModelRouter: falling back from %r to %r (provider=%s, cost=$%.4f)",
+                    selected.name, fallback_name, fallback_entry.provider,
+                    fallback_entry.cost.total_cost(requirements.estimated_input_tokens, requirements.estimated_output_tokens),
+                )
+                selected = fallback_entry
+                break
+            else:
+                logger.warning(
+                    "ModelRouter: no valid fallback found for %r (fallback_order=%r) — keeping primary",
+                    selected.name, selected.fallback_order,
+                )
 
         thinking = Capabilities.THINKING in selected.capabilities and selected.supports_thinking
         logger.info(

@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from enum import IntFlag, auto
 from typing import TYPE_CHECKING
+
+from deerflow.routing.token_estimation import estimate_tokens
 
 
 class Capabilities(IntFlag):
@@ -55,7 +58,6 @@ class ModelRequirements:
     @classmethod
     def from_message(cls, text: str, estimated_output: int = 4096) -> ModelRequirements:
         """Derive requirements from a user message."""
-        import re
         required = Capabilities.TOOLS | Capabilities.STREAMING
         est_input = cls._estimate_tokens(text)
 
@@ -77,12 +79,8 @@ class ModelRequirements:
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:
-        """CJK-aware token estimation (same heuristic as complexity_router)."""
-        if not text:
-            return 0
-        cjk = sum(1 for ch in text if "一" <= ch <= "鿿" or "぀" <= ch <= "ヿ")
-        ascii_chars = len(text) - cjk
-        return cjk + max(1, ascii_chars // 4)
+        """CJK-aware token estimation (shared utility)."""
+        return estimate_tokens(text)
 
 
 if TYPE_CHECKING:

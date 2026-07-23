@@ -46,6 +46,32 @@ logger = logging.getLogger(__name__)
 # Valid stream_mode values for LangGraph's graph.astream()
 _VALID_LG_MODES = {"values", "updates", "checkpoints", "tasks", "debug", "messages", "custom"}
 
+# Module-level cached ModelRouter singleton so the latency feedback loop
+# persists across calls within the same process.
+_router: ModelRouter | None = None
+
+def _get_model_router(app_config: AppConfig) -> ModelRouter:
+    """Return a cached ModelRouter singleton, creating it on first call.
+
+    The singleton ensures LatencyTracker accumulates stats across runs,
+    making the latency-feedback loop in BalancedStrategy functional.
+    """
+    global _router
+    if _router is None:
+        from deerflow.routing import (
+            BalancedStrategy,
+            LatencyTracker,
+            ModelRegistry,
+            ModelRouter,
+        )
+        registry = ModelRegistry.from_config(app_config)
+        _router = ModelRouter(
+            registry=registry,
+            strategy=BalancedStrategy(),
+            latency_tracker=LatencyTracker(window_size=app_config.model_router.latency_window_size),
+        )
+    return _router
+
 
 def _build_runtime_context(
     thread_id: str,
@@ -289,25 +315,21 @@ async def run_agent(
         # Applied BEFORE the agent factory. Takes precedence over complexity_router
         # if both are enabled.
         if ctx.app_config is not None and getattr(ctx.app_config, "model_router", None) is not None and ctx.app_config.model_router.enabled:
-            from deerflow.routing import (
-                BalancedStrategy,
-                LatencyTracker,
-                ModelRegistry,
-                ModelRequirements,
-                ModelRouter,
-            )
+            # I1: Warn when both routers are active — model_router takes precedence.
+            if ctx.app_config.complexity_router is not None and ctx.app_config.complexity_router.enabled:
+                logger.warning(
+                    "Both complexity_router and model_router are enabled — "
+                    "model_router takes precedence"
+                )
 
-            registry = ModelRegistry.from_config(ctx.app_config)
-            router = ModelRouter(
-                registry=registry,
-                strategy=BalancedStrategy(),
-                latency_tracker=LatencyTracker(window_size=ctx.app_config.model_router.latency_window_size),
-            )
+            router = _get_model_router(ctx.app_config)
 
             user_msg = _extract_human_message(graph_input)
             user_text = str(user_msg.content) if user_msg else ""
 
             try:
+                from deerflow.routing import ModelRequirements
+
                 new_model, new_thinking = router.route(
                     requirements=ModelRequirements.from_message(user_text),
                     user_model_override=record.model_name,
