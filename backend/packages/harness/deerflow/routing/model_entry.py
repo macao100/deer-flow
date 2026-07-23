@@ -1,8 +1,10 @@
 """ModelEntry, Capabilities, ModelCost, and ModelRequirements."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from enum import IntFlag, auto
+from typing import TYPE_CHECKING
 
 
 class Capabilities(IntFlag):
@@ -81,3 +83,100 @@ class ModelRequirements:
         cjk = sum(1 for ch in text if "一" <= ch <= "鿿" or "぀" <= ch <= "ヿ")
         ascii_chars = len(text) - cjk
         return cjk + max(1, ascii_chars // 4)
+
+
+if TYPE_CHECKING:
+    from deerflow.config.app_config import AppConfig
+
+logger = logging.getLogger(__name__)
+
+_PROVIDER_MAP: dict[str, str] = {
+    "langchain_openai": "openai",
+    "langchain_anthropic": "anthropic",
+    "langchain_ollama": "ollama",
+    "deerflow.models.patched_deepseek": "deepseek",
+    "deerflow.models.patched_openai": "openai",
+    "deerflow.models.vllm_provider": "vllm",
+    "deerflow.models.claude_provider": "anthropic",
+    "deerflow.models.mindie_provider": "mindie",
+    "deerflow.models.patched_mimo": "mimo",
+    "deerflow.models.patched_minimax": "minimax",
+    "deerflow.models.patched_stepfun": "stepfun",
+    "langchain_mistralai": "mistral",
+}
+
+
+class ModelRegistry:
+    """Registry of available models, built from config.yaml."""
+
+    def __init__(self, entries: dict[str, ModelEntry]) -> None:
+        self._entries = entries
+
+    def get(self, name: str) -> ModelEntry | None:
+        return self._entries.get(name)
+
+    def filter(self, required: Capabilities, forbidden: Capabilities | None = None) -> list[ModelEntry]:
+        """Return entries that satisfy *required* capabilities and have none of *forbidden*."""
+        results: list[ModelEntry] = []
+        for entry in self._entries.values():
+            if not entry.has_capability(required):
+                continue
+            if forbidden and (entry.capabilities & forbidden):
+                continue
+            results.append(entry)
+        return results
+
+    def list_all(self) -> list[ModelEntry]:
+        return list(self._entries.values())
+
+    @classmethod
+    def from_config(cls, app_config: AppConfig) -> ModelRegistry:
+        """Build the registry from an AppConfig's models list."""
+        entries: dict[str, ModelEntry] = {}
+        for model_cfg in app_config.models:
+            try:
+                capabilities = Capabilities.TOOLS | Capabilities.STREAMING
+
+                if getattr(model_cfg, "supports_thinking", False):
+                    capabilities |= Capabilities.THINKING
+                if getattr(model_cfg, "supports_vision", False):
+                    capabilities |= Capabilities.VISION
+
+                max_tokens = getattr(model_cfg, "max_tokens", 0) or 4096
+                if max_tokens >= 128_000:
+                    capabilities |= Capabilities.LARGE_CONTEXT
+
+                # JSON_MODE: OpenAI models usually support it
+                use_path = getattr(model_cfg, "use", "")
+                if "openai" in use_path.lower() or "deepseek" in use_path.lower():
+                    capabilities |= Capabilities.JSON_MODE
+
+                # Derive provider from use path
+                provider = _PROVIDER_MAP.get(use_path.split(":")[0], "unknown")
+
+                # Build cost
+                cost = ModelCost(
+                    input_price_per_mtok=getattr(model_cfg, "input_price_per_mtok", 0.0) or 0.0,
+                    output_price_per_mtok=getattr(model_cfg, "output_price_per_mtok", 0.0) or 0.0,
+                )
+
+                # Build fallback order from config
+                fallback_raw = getattr(model_cfg, "fallback_chain", None) or []
+                fallback_order = tuple(fallback_raw) if isinstance(fallback_raw, list) else ()
+
+                entry = ModelEntry(
+                    name=model_cfg.name,
+                    model_id=model_cfg.model,
+                    provider=provider,
+                    capabilities=capabilities,
+                    cost=cost,
+                    max_tokens=max_tokens,
+                    supports_thinking=getattr(model_cfg, "supports_thinking", False),
+                    fallback_order=fallback_order,
+                )
+                entries[entry.name] = entry
+            except Exception:
+                logger.warning("Failed to build ModelEntry for %r", getattr(model_cfg, "name", "?"), exc_info=True)
+
+        logger.debug("ModelRegistry built: %d entries from config", len(entries))
+        return cls(entries)
