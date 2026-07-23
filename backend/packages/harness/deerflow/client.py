@@ -620,11 +620,38 @@ class DeerFlowClient:
             environment=self._environment or os.environ.get("DEER_FLOW_ENV") or os.environ.get("ENVIRONMENT"),
         )
 
-        # ── Complexity-based model routing ──────────────────────────────────
+        # ── Intelligent ModelRouter ─────────────────────────────────────────
         # Applied BEFORE _ensure_agent so the correct model name lands in
         # config["configurable"] and the agent factory picks it up.
         app_config = get_app_config()
-        if app_config.complexity_router.enabled:
+        if app_config.model_router.enabled:
+            from deerflow.routing import (
+                BalancedStrategy,
+                LatencyTracker,
+                ModelRegistry,
+                ModelRequirements,
+                ModelRouter,
+            )
+
+            registry = ModelRegistry.from_config(app_config)
+            router = ModelRouter(
+                registry=registry,
+                strategy=BalancedStrategy(),
+                latency_tracker=LatencyTracker(window_size=app_config.model_router.latency_window_size),
+            )
+
+            try:
+                new_model, new_thinking = router.route(
+                    requirements=ModelRequirements.from_message(message),
+                    user_model_override=configurable.get("model_name") or self._model_name,
+                    strategy_hint=app_config.model_router.default_strategy,
+                )
+                configurable["model_name"] = new_model
+                configurable["thinking_enabled"] = new_thinking
+                config["configurable"] = configurable
+            except ValueError:
+                logger.warning("ModelRouter: routing failed, keeping current model", exc_info=True)
+        elif app_config.complexity_router.enabled:
             router_cfg = app_config.complexity_router
             current_model = configurable.get("model_name") or self._model_name
             routed = route_by_complexity(
