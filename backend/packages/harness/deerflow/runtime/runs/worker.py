@@ -20,6 +20,7 @@ import copy
 import inspect
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -282,6 +283,43 @@ async def run_agent(
                 if record.model_name is not None and new_model != record.model_name:
                     await run_manager.update_model_name(record.run_id, new_model)
 
+        run_start = time.monotonic()
+
+        # ── NEW: Intelligent ModelRouter ────────────────────────────────────
+        # Applied BEFORE the agent factory. Takes precedence over complexity_router
+        # if both are enabled.
+        if ctx.app_config is not None and getattr(ctx.app_config, "model_router", None) is not None and ctx.app_config.model_router.enabled:
+            from deerflow.routing import (
+                BalancedStrategy,
+                LatencyTracker,
+                ModelRegistry,
+                ModelRequirements,
+                ModelRouter,
+            )
+
+            registry = ModelRegistry.from_config(ctx.app_config)
+            router = ModelRouter(
+                registry=registry,
+                strategy=BalancedStrategy(),
+                latency_tracker=LatencyTracker(window_size=ctx.app_config.model_router.latency_window_size),
+            )
+
+            user_msg = _extract_human_message(graph_input)
+            user_text = str(user_msg.content) if user_msg else ""
+
+            try:
+                new_model, new_thinking = router.route(
+                    requirements=ModelRequirements.from_message(user_text),
+                    user_model_override=record.model_name,
+                    strategy_hint=ctx.app_config.model_router.default_strategy,
+                )
+                config.setdefault("configurable", {})["model_name"] = new_model
+                config.setdefault("configurable", {})["thinking_enabled"] = new_thinking
+                if record.model_name is not None and new_model != record.model_name:
+                    await run_manager.update_model_name(record.run_id, new_model)
+            except ValueError:
+                logger.warning("ModelRouter: routing failed, keeping current model", exc_info=True)
+
         runnable_config = RunnableConfig(**config)
         if ctx.app_config is not None and _agent_factory_supports_app_config(agent_factory):
             agent = agent_factory(config=runnable_config, app_config=ctx.app_config)
@@ -367,6 +405,15 @@ async def run_agent(
                 llm_error_fallback_message = llm_error_fallback_message or _extract_llm_error_fallback_message(chunk)
                 sse_event = _lg_mode_to_sse_event(mode)
                 await bridge.publish(run_id, sse_event, serialize(chunk, mode=mode))
+
+        # After the run completes, record latency for the model used
+        if ctx.app_config is not None and getattr(ctx.app_config, "model_router", None) is not None and ctx.app_config.model_router.enabled:
+            run_duration_ms = (time.monotonic() - run_start) * 1000
+            model_used = config.get("configurable", {}).get("model_name", "unknown")
+            try:
+                router.record_latency(model_used, run_duration_ms)
+            except Exception:
+                logger.debug("Failed to record latency for model %r", model_used, exc_info=True)
 
         # 8. Final status
         if record.abort_event.is_set():
